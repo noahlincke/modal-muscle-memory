@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:mmm": "tsc -b && vite build --base=/mmm/",
+    "build:deploy:mmm": "npm run build:mmm && cp deploy/hostineer/static-subpath.htaccess dist/.htaccess",
+    "start:passenger": "node app.cjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",

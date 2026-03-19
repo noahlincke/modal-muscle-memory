@@ -59,6 +59,12 @@ npm run lint
 npm run build
 ```
 
+## Deployment
+
+- `npm run build:mmm` builds the app for hosting at subpath `/mmm/`.
+- `npm run build:deploy:mmm` runs the `/mmm/` build and writes SPA rewrite rules to `dist/.htaccess`.
+- `npm run start:passenger` starts the included `app.cjs` server for Passenger-based Node hosting.
+
 ## Module Layout
 
 ```text
