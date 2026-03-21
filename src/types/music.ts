@@ -7,6 +7,8 @@ export type ModeLane =
   | 'lydian'
   | 'phrygian';
 
+export type ExerciseMode = 'guided' | 'improvisation';
+
 export type VoicingFamily =
   | 'triad_root'
   | 'shell_137'
@@ -27,8 +29,76 @@ export type RhythmCellId =
   | 'offbeat_1and_3'
   | 'syncopated_2and_4';
 
+export type RhythmSelection = RhythmCellId | 'all';
 export type BassPolicy = 'exact' | 'allow_inversion' | 'any_allowed';
 export type TopNotePolicy = 'exact' | 'preferred' | 'any_allowed';
+
+export type ScaleId =
+  | 'ionian'
+  | 'dorian'
+  | 'phrygian'
+  | 'lydian'
+  | 'mixolydian'
+  | 'aeolian'
+  | 'locrian'
+  | 'major_pentatonic'
+  | 'minor_pentatonic';
+
+export type ScaleCategory = 'mode' | 'pentatonic';
+export type StyleTag = 'functional_jazz' | 'modal_jazz' | 'borrowed_color' | 'contemporary_modal';
+export type ProgressionFamilyTag =
+  | 'scalar'
+  | 'turnaround'
+  | 'predominant'
+  | 'circle_motion'
+  | 'cadence'
+  | 'minor_loop'
+  | 'borrowed'
+  | 'backdoor';
+
+export type HarmonicFunctionTag = 'tonic' | 'predominant' | 'dominant' | 'color' | 'passing';
+
+export interface ScaleOption {
+  id: ScaleId;
+  label: string;
+  category: ScaleCategory;
+  intervalFormula: string[];
+  qualityTags: string[];
+}
+
+export interface ProgressionStep {
+  roman: string;
+  functionTag: HarmonicFunctionTag;
+  recommendedScaleIds: ScaleId[];
+  colorScaleIds: ScaleId[];
+}
+
+export interface ProgressionDifficultyProfile {
+  level: number;
+  accidentalComplexity: number;
+  borrowedChordCount: number;
+  alterationComplexity: number;
+}
+
+export interface ProgressionTags {
+  styles: StyleTag[];
+  modeFamilies: ModeLane[];
+  families: ProgressionFamilyTag[];
+}
+
+export interface ProgressionDefinition {
+  id: string;
+  lane: ModeLane;
+  difficulty: number;
+  steps: ProgressionStep[];
+  allowedVoicings: VoicingFamily[];
+  rhythmPlan: RhythmCellId[];
+  maxVoiceMotionSemitones: number;
+  tonicCenterStable: boolean;
+  tags: ProgressionTags;
+  difficultyProfile: ProgressionDifficultyProfile;
+  chainTargets: string[];
+}
 
 export interface ChordToken {
   id: string;
@@ -51,21 +121,11 @@ export interface ChordToken {
 export interface PhraseEvent {
   id: string;
   chordTokenId: string;
+  progressionStepIndex: number;
   bar: number;
   beat: number;
   durationBeats: number;
   rhythmCellId: RhythmCellId;
-}
-
-export interface PhraseTemplate {
-  id: string;
-  lane: ModeLane;
-  difficulty: number;
-  romanPlan: string[];
-  allowedVoicings: VoicingFamily[];
-  rhythmPlan: RhythmCellId[];
-  maxVoiceMotionSemitones: number;
-  tonicCenterStable: boolean;
 }
 
 export interface Phrase {
@@ -76,7 +136,8 @@ export interface Phrase {
   timeSignature: '4/4';
   events: PhraseEvent[];
   tokensById: Record<string, ChordToken>;
-  templateId: string;
+  progressionId: string;
+  progression: ProgressionDefinition;
   focusType: PhraseFocusType;
 }
 
@@ -105,9 +166,11 @@ export type PhraseFocusType =
 export interface ScoringError {
   code:
     | 'wrong_pitch_class'
+    | 'wrong_target_notes'
     | 'missing_required_tone'
     | 'wrong_bass'
     | 'wrong_inversion'
+    | 'outside_allowed_scale'
     | 'early'
     | 'late'
     | 'carried_over_notes';

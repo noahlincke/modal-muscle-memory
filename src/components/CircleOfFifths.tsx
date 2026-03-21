@@ -26,7 +26,6 @@ export function CircleOfFifths({
 
   return (
     <section className="circle-panel">
-      <h3>Circle of Fifths</h3>
       <svg viewBox="0 0 240 240" role="img" aria-label="Circle of fifths">
         <circle cx={center} cy={center} r={outerRadius} className="circle-shell" />
         <circle cx={center} cy={center} r={intervalDotRadius} className="circle-interval-shell" />

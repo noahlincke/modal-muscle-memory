@@ -1,15 +1,18 @@
 import type { ProgressState } from '../types/progress';
+import { ThemeToggle } from './ThemeToggle';
 
 interface ProgressScreenProps {
   progress: ProgressState;
+  theme: 'light' | 'dark' | 'focus';
   onBack: () => void;
+  onToggleTheme: () => void;
 }
 
 function pct(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-export function ProgressScreen({ progress, onBack }: ProgressScreenProps) {
+export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: ProgressScreenProps) {
   const weakestTransitions = Object.entries(progress.edgeMastery)
     .sort((a, b) => a[1].accuracyEwma - b[1].accuracyEwma)
     .slice(0, 8);
@@ -42,7 +45,10 @@ export function ProgressScreen({ progress, onBack }: ProgressScreenProps) {
     <section className="progress-screen">
       <header>
         <h1>Progress</h1>
-        <button type="button" onClick={onBack}>Back to Home</button>
+        <div className="progress-header-actions">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <button type="button" onClick={onBack}>Back to Practice</button>
+        </div>
       </header>
 
       <div className="progress-grid">

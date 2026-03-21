@@ -1,16 +1,21 @@
-import * as Tone from 'tone';
+import { loadTone } from './toneLoader';
 
 export class Metronome {
-  private synth: Tone.MembraneSynth | null = null;
+  private synth: import('tone').MembraneSynth | null = null;
 
   private repeatId: number | null = null;
 
   private prepared = false;
 
+  private tone: typeof import('tone') | null = null;
+
   async prepare(): Promise<void> {
     if (this.prepared) {
       return;
     }
+
+    const Tone = await loadTone();
+    this.tone = Tone;
 
     await Tone.start();
     Tone.Transport.cancel(0);
@@ -33,6 +38,11 @@ export class Metronome {
     onBeat?: (beatIndex: number) => void,
   ): Promise<void> {
     await this.prepare();
+    const Tone = this.tone;
+    if (!Tone) {
+      return;
+    }
+
     Tone.Transport.stop();
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = tempo;
@@ -61,6 +71,11 @@ export class Metronome {
 
   async start(tempo: number, onBeat?: (beatIndex: number) => void): Promise<void> {
     await this.prepare();
+    const Tone = this.tone;
+    if (!Tone) {
+      return;
+    }
+
     Tone.Transport.stop();
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = tempo;
@@ -76,10 +91,17 @@ export class Metronome {
   }
 
   setTempo(tempo: number): void {
-    Tone.Transport.bpm.value = tempo;
+    if (this.tone) {
+      this.tone.Transport.bpm.value = tempo;
+    }
   }
 
   stop(): void {
+    const Tone = this.tone;
+    if (!Tone) {
+      return;
+    }
+
     if (this.repeatId !== null) {
       Tone.Transport.clear(this.repeatId);
       this.repeatId = null;

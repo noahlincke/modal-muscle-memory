@@ -1,11 +1,19 @@
 import type {
+  ExerciseMode,
   MasteryStat,
   ModeLane,
   PhraseFocusType,
   RhythmCellId,
+  RhythmSelection,
   ScoringMode,
   VoicingFamily,
 } from './music';
+
+export interface ExerciseConfig {
+  mode: ExerciseMode;
+  lane: ModeLane;
+  rhythm: RhythmSelection;
+}
 
 export interface UnlockState {
   roots: string[];
@@ -42,6 +50,7 @@ export interface UserSettings {
   tempo: number;
   metronomeEnabled: boolean;
   showKeyboardPanel: boolean;
+  scaleGuideLabelMode: 'degrees' | 'note_names';
   staffClef: 'treble' | 'bass';
   registerMin: number;
   registerMax: number;
@@ -52,7 +61,7 @@ export interface UserSettings {
 
 export interface ProgressState {
   schemaVersion: number;
-  selectedLane: ModeLane;
+  exerciseConfig: ExerciseConfig;
   settings: UserSettings;
   unlocksByLane: Record<ModeLane, UnlockState>;
   nodeMastery: Record<string, MasteryStat>;

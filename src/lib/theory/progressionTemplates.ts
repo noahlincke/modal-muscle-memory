@@ -1,11 +1,11 @@
 import { getPackForLane } from '../../content/packs';
-import type { ModeLane, PhraseTemplate } from '../../types/music';
+import type { ModeLane, ProgressionDefinition } from '../../types/music';
 
-export function getTemplatesForLane(lane: ModeLane): PhraseTemplate[] {
+export function getProgressionsForLane(lane: ModeLane): ProgressionDefinition[] {
   const pack = getPackForLane(lane);
-  return pack?.templates ?? [];
+  return pack?.progressions ?? [];
 }
 
-export function countTemplatesByLane(lane: ModeLane): number {
-  return getTemplatesForLane(lane).length;
+export function countProgressionsByLane(lane: ModeLane): number {
+  return getProgressionsForLane(lane).length;
 }

@@ -2,6 +2,7 @@ import { getPackForLane } from '../../content/packs';
 import type { ModeLane } from '../../types/music';
 import type {
   AttemptRecord,
+  ExerciseConfig,
   ProgressState,
   SessionRecord,
   UnlockState,
@@ -9,7 +10,7 @@ import type {
 } from '../../types/progress';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const ALL_LANES: ModeLane[] = [
   'ionian',
@@ -21,11 +22,20 @@ const ALL_LANES: ModeLane[] = [
   'phrygian',
 ];
 
+function defaultExerciseConfig(): ExerciseConfig {
+  return {
+    mode: 'guided',
+    lane: 'ionian',
+    rhythm: 'all',
+  };
+}
+
 function defaultSettings(): UserSettings {
   return {
     tempo: 78,
     metronomeEnabled: true,
     showKeyboardPanel: true,
+    scaleGuideLabelMode: 'degrees',
     staffClef: 'treble',
     registerMin: 48,
     registerMax: 72,
@@ -66,7 +76,7 @@ function defaultUnlocks(): Record<ModeLane, UnlockState> {
 export function createDefaultProgressState(): ProgressState {
   return {
     schemaVersion: SCHEMA_VERSION,
-    selectedLane: 'ionian',
+    exerciseConfig: defaultExerciseConfig(),
     settings: defaultSettings(),
     unlocksByLane: defaultUnlocks(),
     nodeMastery: {},
@@ -108,7 +118,10 @@ function mergeProgress(raw: Partial<ProgressState>): ProgressState {
 
   return {
     schemaVersion: SCHEMA_VERSION,
-    selectedLane: raw.selectedLane ?? defaults.selectedLane,
+    exerciseConfig: {
+      ...defaults.exerciseConfig,
+      ...raw.exerciseConfig,
+    },
     settings: {
       ...defaults.settings,
       ...raw.settings,
@@ -158,13 +171,11 @@ export function pushAttempt(
   progress: ProgressState,
   attempt: AttemptRecord,
 ): ProgressState {
-  const next = {
+  return {
     ...progress,
     recentAttempts: [...progress.recentAttempts, attempt].slice(-300),
     lastSessionAt: attempt.at,
   };
-
-  return next;
 }
 
 export function pushSession(
