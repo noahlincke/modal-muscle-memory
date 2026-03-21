@@ -1,4 +1,4 @@
-import type { ModeLane, PhraseTemplate, RhythmCellId, VoicingFamily } from '../../types/music';
+import type { ModeLane, ProgressionDefinition, RhythmCellId, VoicingFamily } from '../../types/music';
 
 export interface ContentPack {
   id: string;
@@ -7,5 +7,5 @@ export interface ContentPack {
   roots: string[];
   voicings: VoicingFamily[];
   rhythms: RhythmCellId[];
-  templates: PhraseTemplate[];
+  progressions: ProgressionDefinition[];
 }

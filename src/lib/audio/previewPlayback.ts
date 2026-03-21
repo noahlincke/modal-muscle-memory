@@ -1,19 +1,28 @@
-import * as Tone from 'tone';
 import { Midi } from 'tonal';
 import type { Phrase } from '../../types/music';
+import { loadTone } from './toneLoader';
 
 export class PreviewPlayback {
-  private synth: Tone.PolySynth<Tone.Synth> | null = null;
+  private synth: import('tone').PolySynth<import('tone').Synth> | null = null;
 
-  private clickSynth: Tone.MembraneSynth | null = null;
+  private clickSynth: import('tone').MembraneSynth | null = null;
 
   private prepared = false;
+
+  private runId = 0;
+
+  private scheduledTimeoutIds: number[] = [];
+
+  private completionTimeoutId: number | null = null;
+
+  private pendingResolve: (() => void) | null = null;
 
   async prepare(): Promise<void> {
     if (this.prepared) {
       return;
     }
 
+    const Tone = await loadTone();
     await Tone.start();
     this.synth = new Tone.PolySynth(Tone.Synth, {
       oscillator: {
@@ -47,9 +56,12 @@ export class PreviewPlayback {
     } = {},
   ): Promise<void> {
     await this.prepare();
+    this.stop();
+
     const withMetronome = options.withMetronome ?? true;
     const secondsPerBeat = 60 / phrase.tempo;
-    const now = Tone.now() + 0.05;
+    const runId = this.runId;
+    const startDelayMs = 50;
 
     phrase.events.forEach((event) => {
       const token = phrase.tokensById[event.chordTokenId];
@@ -59,25 +71,69 @@ export class PreviewPlayback {
 
       const notes = token.midiVoicing.map((midi) => Midi.midiToNoteName(midi, { sharps: true }) ?? 'C4');
       const eventOffsetSeconds = ((event.bar - 1) * 4 + (event.beat - 1)) * secondsPerBeat;
-      const eventTime = now + eventOffsetSeconds;
       const duration = Math.max(0.25, event.durationBeats * secondsPerBeat);
-
-      this.synth?.triggerAttackRelease(notes, duration, eventTime, 0.45);
+      const timeoutId = window.setTimeout(() => {
+        if (this.runId !== runId) {
+          return;
+        }
+        this.synth?.triggerAttackRelease(notes, duration, undefined, 0.45);
+      }, Math.max(0, Math.round(startDelayMs + eventOffsetSeconds * 1000)));
+      this.scheduledTimeoutIds.push(timeoutId);
     });
 
     const totalBeats = Math.max(...phrase.events.map((event) => (event.bar - 1) * 4 + event.beat + event.durationBeats));
 
     if (withMetronome) {
       for (let beatIndex = 0; beatIndex < Math.ceil(totalBeats); beatIndex += 1) {
-        const beatTime = now + beatIndex * secondsPerBeat;
         const clickPitch = beatIndex % 4 === 0 ? 'C5' : 'C4';
-        this.clickSynth?.triggerAttackRelease(clickPitch, '16n', beatTime, 0.26);
+        const timeoutId = window.setTimeout(() => {
+          if (this.runId !== runId) {
+            return;
+          }
+          this.clickSynth?.triggerAttackRelease(clickPitch, '16n', undefined, 0.26);
+        }, Math.max(0, Math.round(startDelayMs + beatIndex * secondsPerBeat * 1000)));
+        this.scheduledTimeoutIds.push(timeoutId);
       }
     }
 
-    const waitMs = Math.ceil(totalBeats * secondsPerBeat * 1000 + 120);
+    const waitMs = Math.ceil(startDelayMs + totalBeats * secondsPerBeat * 1000 + 120);
     await new Promise<void>((resolve) => {
-      window.setTimeout(() => resolve(), waitMs);
+      this.pendingResolve = resolve;
+      this.completionTimeoutId = window.setTimeout(() => {
+        if (this.runId !== runId) {
+          resolve();
+          return;
+        }
+        this.finishRun(resolve);
+      }, waitMs);
     });
+  }
+
+  stop(): void {
+    this.runId += 1;
+
+    this.scheduledTimeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    this.scheduledTimeoutIds = [];
+
+    if (this.completionTimeoutId !== null) {
+      window.clearTimeout(this.completionTimeoutId);
+      this.completionTimeoutId = null;
+    }
+
+    this.synth?.releaseAll();
+    this.clickSynth?.triggerRelease?.();
+
+    if (this.pendingResolve) {
+      const resolve = this.pendingResolve;
+      this.pendingResolve = null;
+      resolve();
+    }
+  }
+
+  private finishRun(resolve: () => void): void {
+    this.scheduledTimeoutIds = [];
+    this.completionTimeoutId = null;
+    this.pendingResolve = null;
+    resolve();
   }
 }

@@ -16,7 +16,7 @@ describe('phraseGenerator', () => {
     const random = seededRandom(11);
 
     const phrase = generatePhrase({
-      lane: 'ionian',
+      config: progress.exerciseConfig,
       progress,
       tempo: 78,
       random,
@@ -51,10 +51,11 @@ describe('phraseGenerator', () => {
 
     lanes.forEach((lane) => {
       for (let i = 0; i < 90; i += 1) {
-        const phrase = generatePhrase({ lane, progress, tempo: 82, random });
+        progress.exerciseConfig.lane = lane;
+        const phrase = generatePhrase({ config: progress.exerciseConfig, progress, tempo: 82, random });
         const signature = [
           lane,
-          phrase.templateId,
+          phrase.progressionId,
           phrase.tonic,
           phrase.events.map((event) => event.rhythmCellId).join('-'),
           phrase.events
@@ -67,5 +68,21 @@ describe('phraseGenerator', () => {
     });
 
     expect(signatures.size).toBeGreaterThanOrEqual(30);
+  });
+
+  it('expands selected rhythm cells into timed hits', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.rhythm = 'charleston';
+
+    const phrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(7),
+    });
+
+    expect(phrase.events.length).toBe(phrase.progression.steps.length * 2);
+    expect(phrase.events.every((event) => event.rhythmCellId === 'charleston')).toBe(true);
+    expect(phrase.events.some((event) => event.beat === 2.5)).toBe(true);
   });
 });

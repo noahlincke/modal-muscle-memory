@@ -20,6 +20,37 @@ interface MidiAccessControllerOptions {
   onStateChange?: (state: MidiConnectionState) => void;
 }
 
+function getMidiUnsupportedMessage(): string {
+  if (typeof navigator === 'undefined') {
+    return 'Web MIDI API unavailable in this browser.';
+  }
+
+  const userAgent = navigator.userAgent;
+  const isAppleWebKitBrowser = /Safari\//.test(userAgent)
+    && !/Chrome\//.test(userAgent)
+    && !/Chromium\//.test(userAgent)
+    && !/Edg\//.test(userAgent)
+    && !/Firefox\//.test(userAgent);
+
+  if (isAppleWebKitBrowser) {
+    return 'Safari and other WebKit browsers on Apple devices do not support Web MIDI.';
+  }
+
+  return 'Web MIDI API unavailable in this browser.';
+}
+
+export function createMidiFallbackState(): MidiConnectionState {
+  const supported = typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator;
+
+  return {
+    supported,
+    ready: false,
+    inputs: [],
+    activeInputId: null,
+    error: supported ? null : getMidiUnsupportedMessage(),
+  };
+}
+
 function summarizeInputs(access: MIDIAccess): MidiInputSummary[] {
   return Array.from(access.inputs.values()).map((input) => ({
     id: input.id,
@@ -34,13 +65,7 @@ export class MidiAccessController {
 
   private activeInput: MIDIInput | null = null;
 
-  private state: MidiConnectionState = {
-    supported: typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator,
-    ready: false,
-    inputs: [],
-    activeInputId: null,
-    error: null,
-  };
+  private state: MidiConnectionState = createMidiFallbackState();
 
   private readonly onMessage: MidiAccessControllerOptions['onMessage'];
 
@@ -56,7 +81,7 @@ export class MidiAccessController {
       this.state = {
         ...this.state,
         ready: false,
-        error: 'Web MIDI API unavailable in this browser.',
+        error: getMidiUnsupportedMessage(),
       };
       this.emitState();
       return this.state;

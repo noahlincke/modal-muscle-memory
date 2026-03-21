@@ -8,7 +8,7 @@ import {
 describe('progressStore', () => {
   it('persists and reloads progress', () => {
     const progress = createDefaultProgressState();
-    progress.selectedLane = 'aeolian';
+    progress.exerciseConfig.lane = 'aeolian';
     progress.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'] = {
       attempts: 4,
       successes: 3,
@@ -21,7 +21,8 @@ describe('progressStore', () => {
     saveProgressState(progress);
     const loaded = loadProgressState();
 
-    expect(loaded.selectedLane).toBe('aeolian');
+    expect(loaded.exerciseConfig.lane).toBe('aeolian');
+    expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1']).toBeDefined();
   });
 
@@ -29,7 +30,11 @@ describe('progressStore', () => {
     window.localStorage.setItem(
       'modal-muscle-memory-progress',
       JSON.stringify({
-        selectedLane: 'ionian',
+        exerciseConfig: {
+          mode: 'guided',
+          lane: 'ionian',
+          rhythm: 'all',
+        },
         unlocksByLane: {
           ionian: {
             roots: ['C'],
@@ -56,6 +61,7 @@ describe('progressStore', () => {
     const loaded = loadProgressState();
 
     expect(loaded.unlocksByLane.ionian.unlockedPackIds.length).toBeGreaterThan(0);
+    expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'].attempts).toBe(8);
   });
 });
