@@ -934,6 +934,40 @@ button:disabled {
   gap: 0.6rem;
 }
 
+.settings-slider-stack {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.settings-slider-copy {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.8rem;
+}
+
+.settings-slider-copy strong {
+  font-size: 0.92rem;
+}
+
+.settings-slider-copy span {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.settings-range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.settings-range-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
 @media (max-width: 980px) {
   #root {
     height: auto;

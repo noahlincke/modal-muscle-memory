@@ -9,6 +9,10 @@ interface PracticeSettingsDrawerProps {
   onSelectMode: (mode: ProgressState['exerciseConfig']['mode']) => void;
   onSelectLane: (lane: ModeLane) => void;
   onSelectRhythm: (rhythm: RhythmSelection) => void;
+  onSelectImprovisationProgressionMode: (
+    mode: ProgressState['exerciseConfig']['improvisationProgressionMode'],
+  ) => void;
+  onSetChainMovement: (chainMovement: number) => void;
 }
 
 const LANE_OPTIONS: Array<{ lane: ModeLane; label: string }> = [
@@ -55,7 +59,11 @@ export function PracticeSettingsDrawer({
   onSelectMode,
   onSelectLane,
   onSelectRhythm,
+  onSelectImprovisationProgressionMode,
+  onSetChainMovement,
 }: PracticeSettingsDrawerProps) {
+  const isImprovisationMode = progress.exerciseConfig.mode === 'improvisation';
+
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
       <aside
@@ -97,6 +105,55 @@ export function PracticeSettingsDrawer({
             </button>
           </div>
         </section>
+
+        {isImprovisationMode ? (
+          <section className="settings-section">
+            <div className="settings-section-copy">
+              <h3>Improvisation Flow</h3>
+              <p>Keep drawing random progressions, or chain each new phrase from the last one.</p>
+            </div>
+
+            <div className="settings-pill-row">
+              <button
+                type="button"
+                className={`settings-pill ${progress.exerciseConfig.improvisationProgressionMode === 'random' ? 'active' : ''}`.trim()}
+                onClick={() => onSelectImprovisationProgressionMode('random')}
+              >
+                Random
+              </button>
+              <button
+                type="button"
+                className={`settings-pill ${progress.exerciseConfig.improvisationProgressionMode === 'chained' ? 'active' : ''}`.trim()}
+                onClick={() => onSelectImprovisationProgressionMode('chained')}
+              >
+                Chained
+              </button>
+            </div>
+
+            {progress.exerciseConfig.improvisationProgressionMode === 'chained' ? (
+              <div className="settings-slider-stack">
+                <div className="settings-slider-copy">
+                  <strong>Chain Motion</strong>
+                  <span>{progress.exerciseConfig.chainMovement}% moving</span>
+                </div>
+                <input
+                  className="settings-range"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={progress.exerciseConfig.chainMovement}
+                  onChange={(event) => onSetChainMovement(Number(event.target.value))}
+                  aria-label="Chain motion"
+                />
+                <div className="settings-range-labels" aria-hidden="true">
+                  <span>Repetitive</span>
+                  <span>Moving</span>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="settings-section">
           <div className="settings-section-copy">

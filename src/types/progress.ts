@@ -1,5 +1,6 @@
 import type {
   ExerciseMode,
+  ImprovisationProgressionMode,
   MasteryStat,
   ModeLane,
   PhraseFocusType,
@@ -13,6 +14,8 @@ export interface ExerciseConfig {
   mode: ExerciseMode;
   lane: ModeLane;
   rhythm: RhythmSelection;
+  improvisationProgressionMode: ImprovisationProgressionMode;
+  chainMovement: number;
 }
 
 export interface UnlockState {

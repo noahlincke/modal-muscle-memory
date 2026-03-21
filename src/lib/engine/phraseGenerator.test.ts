@@ -85,4 +85,57 @@ describe('phraseGenerator', () => {
     expect(phrase.events.every((event) => event.rhythmCellId === 'charleston')).toBe(true);
     expect(phrase.events.some((event) => event.beat === 2.5)).toBe(true);
   });
+
+  it('can keep chained improvisation on the same loop when chain movement is low', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'improvisation';
+    progress.exerciseConfig.improvisationProgressionMode = 'chained';
+    progress.exerciseConfig.chainMovement = 0;
+
+    const previousPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      focusOverride: 'due_review',
+      random: () => 0,
+    });
+
+    const nextPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      previousPhrase,
+      random: () => 0,
+    });
+
+    expect(nextPhrase.progressionId).toBe(previousPhrase.progressionId);
+    expect(nextPhrase.tonic).toBe(previousPhrase.tonic);
+  });
+
+  it('can follow chain targets when chain movement is high', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'improvisation';
+    progress.exerciseConfig.improvisationProgressionMode = 'chained';
+    progress.exerciseConfig.chainMovement = 100;
+
+    const previousPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      focusOverride: 'due_review',
+      random: () => 0,
+    });
+
+    const nextPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      previousPhrase,
+      random: () => 0.95,
+    });
+
+    expect(nextPhrase.progressionId).not.toBe(previousPhrase.progressionId);
+    expect(previousPhrase.progression.chainTargets).toContain(nextPhrase.progressionId);
+    expect(nextPhrase.tonic).toBe(previousPhrase.tonic);
+  });
 });

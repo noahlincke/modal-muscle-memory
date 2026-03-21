@@ -213,6 +213,7 @@ export default function App() {
   const progressRef = useRef<ProgressState>(progress);
 
   const [phrase, setPhrase] = useState<Phrase | null>(null);
+  const phraseRef = useRef<Phrase | null>(null);
   const [currentEventIndex, setCurrentEventIndex] = useState(0);
   const [completedEventIds, setCompletedEventIds] = useState<Set<string>>(new Set());
   const [latestEvaluation, setLatestEvaluation] = useState<EvaluationResult | null>(null);
@@ -260,6 +261,10 @@ export default function App() {
     progressRef.current = progress;
   }, [progress]);
 
+  useEffect(() => {
+    phraseRef.current = phrase;
+  }, [phrase]);
+
   useEffect(() => () => {
     previewRef.current.stop();
   }, []);
@@ -299,6 +304,10 @@ export default function App() {
       config: state.exerciseConfig,
       progress: state,
       tempo: state.settings.tempo,
+      previousPhrase: state.exerciseConfig.mode === 'improvisation'
+        && state.exerciseConfig.improvisationProgressionMode === 'chained'
+        ? phraseRef.current
+        : null,
     });
 
     setPhrase(nextPhrase);
@@ -784,6 +793,36 @@ export default function App() {
     generateNextPhrase(next);
   }, [commitProgress, generateNextPhrase]);
 
+  const selectImprovisationProgressionMode = useCallback((
+    improvisationProgressionMode: ProgressState['exerciseConfig']['improvisationProgressionMode'],
+  ) => {
+    const next = {
+      ...progressRef.current,
+      exerciseConfig: {
+        ...progressRef.current.exerciseConfig,
+        improvisationProgressionMode,
+      },
+    };
+
+    commitProgress(next);
+    setStreak(0);
+    generateNextPhrase(next);
+  }, [commitProgress, generateNextPhrase]);
+
+  const setChainMovement = useCallback((chainMovement: number) => {
+    const next = {
+      ...progressRef.current,
+      exerciseConfig: {
+        ...progressRef.current.exerciseConfig,
+        chainMovement: Math.max(0, Math.min(100, Math.round(chainMovement))),
+      },
+    };
+
+    commitProgress(next);
+    setStreak(0);
+    generateNextPhrase(next);
+  }, [commitProgress, generateNextPhrase]);
+
   const keyboardTargetNotes = useMemo(() => {
     if (progress.exerciseConfig.mode !== 'improvisation' && keyboardTargetOverrideNotes) {
       return keyboardTargetOverrideNotes;
@@ -892,6 +931,8 @@ export default function App() {
           onSelectMode={selectMode}
           onSelectLane={selectLane}
           onSelectRhythm={selectRhythm}
+          onSelectImprovisationProgressionMode={selectImprovisationProgressionMode}
+          onSetChainMovement={setChainMovement}
         />
       ) : null}
     </>

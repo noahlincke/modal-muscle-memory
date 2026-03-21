@@ -8,6 +8,7 @@ export type ModeLane =
   | 'phrygian';
 
 export type ExerciseMode = 'guided' | 'improvisation';
+export type ImprovisationProgressionMode = 'random' | 'chained';
 
 export type VoicingFamily =
   | 'triad_root'

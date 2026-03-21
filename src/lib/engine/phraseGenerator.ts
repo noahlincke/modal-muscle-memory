@@ -15,6 +15,7 @@ interface GeneratePhraseInput {
   config: ExerciseConfig;
   progress: ProgressState;
   tempo: number;
+  previousPhrase?: Phrase | null;
   random?: () => number;
   midiRange?: { min: number; max: number };
   focusOverride?: PhraseFocusType;
@@ -23,6 +24,28 @@ interface GeneratePhraseInput {
 function choose<T>(items: T[], random: () => number): T {
   const index = Math.floor(random() * items.length);
   return items[Math.min(index, items.length - 1)];
+}
+
+function chooseWeighted<T>(
+  items: Array<{ value: T; weight: number }>,
+  random: () => number,
+): T {
+  const eligible = items.filter((item) => item.weight > 0);
+  if (eligible.length === 0) {
+    return items[0].value;
+  }
+
+  const totalWeight = eligible.reduce((sum, item) => sum + item.weight, 0);
+  let cursor = random() * totalWeight;
+
+  for (const item of eligible) {
+    cursor -= item.weight;
+    if (cursor <= 0) {
+      return item.value;
+    }
+  }
+
+  return eligible[eligible.length - 1].value;
 }
 
 function intersect<T>(a: T[], b: T[]): T[] {
@@ -89,6 +112,58 @@ function pickProgressionForFocus(
   return choose(progressions, random);
 }
 
+function isChainedImprovisation(config: ExerciseConfig): boolean {
+  return config.mode === 'improvisation' && config.improvisationProgressionMode === 'chained';
+}
+
+function progressionLookup(progressions: ProgressionDefinition[]): Map<string, ProgressionDefinition> {
+  return new Map(progressions.map((progression) => [progression.id, progression]));
+}
+
+function pickChainedProgression(
+  progressions: ProgressionDefinition[],
+  previousPhrase: Phrase | null | undefined,
+  chainMovement: number,
+  random: () => number,
+): ProgressionDefinition | null {
+  if (!previousPhrase) {
+    return null;
+  }
+
+  const previousProgression = progressions.find((progression) => progression.id === previousPhrase.progressionId);
+  if (!previousProgression) {
+    return null;
+  }
+
+  const byId = progressionLookup(progressions);
+  const directTargets = previousProgression.chainTargets
+    .map((targetId) => byId.get(targetId))
+    .filter((progression): progression is ProgressionDefinition => Boolean(progression));
+
+  if (directTargets.length === 0) {
+    return previousProgression;
+  }
+
+  const movement = Math.min(1, Math.max(0, chainMovement / 100));
+  const primaryTargetId = previousProgression.chainTargets[0] ?? null;
+
+  return chooseWeighted(
+    [
+      {
+        value: previousProgression,
+        weight: 3.8 - (3.4 * movement),
+      },
+      ...directTargets.map((progression) => ({
+        value: progression,
+        weight: progression.id === primaryTargetId
+          ? 1.3 + ((1 - movement) * 0.9)
+          : 0.65 + (movement * 1.8),
+      })),
+    ],
+    random,
+  );
+}
+
 function selectVoicing(
   unlocked: UnlockState,
   progression: ProgressionDefinition,
@@ -132,6 +207,7 @@ export function generatePhrase({
   config,
   progress,
   tempo,
+  previousPhrase,
   random = Math.random,
   midiRange,
   focusOverride,
@@ -151,14 +227,30 @@ export function generatePhrase({
     random,
   });
 
-  const progression = pickProgressionForFocus(progressions, focus, progress, config.lane, random);
-  const tonic = roots.length > 0 ? choose(roots, random) : pack.roots[0];
-  const voicingFamily = selectVoicing(unlocked, progression, focus, random);
+  const chainSource = isChainedImprovisation(config) && previousPhrase?.lane === config.lane
+    ? previousPhrase
+    : null;
+  const progression = pickChainedProgression(progressions, chainSource, config.chainMovement, random)
+    ?? pickProgressionForFocus(progressions, focus, progress, config.lane, random);
+  const tonic = chainSource?.tonic ?? (roots.length > 0 ? choose(roots, random) : pack.roots[0]);
+  const previousPhraseLastEvent = chainSource ? chainSource.events[chainSource.events.length - 1] : null;
+  const previousPhraseLastToken = previousPhraseLastEvent
+    ? chainSource?.tokensById[previousPhraseLastEvent.chordTokenId]
+    : null;
+  const carryForwardVoicingFamily = previousPhraseLastToken
+    && progression.allowedVoicings.includes(previousPhraseLastToken.voicingFamily)
+    && unlocked.voicings.includes(previousPhraseLastToken.voicingFamily)
+    ? previousPhraseLastToken.voicingFamily
+    : null;
+  const voicingFamily = carryForwardVoicingFamily
+    ?? selectVoicing(unlocked, progression, focus, random);
 
   const tokensById: Phrase['tokensById'] = {};
   const events: Phrase['events'] = [];
 
-  let previousMidiVoicing: number[] | undefined;
+  let previousMidiVoicing: number[] | undefined = carryForwardVoicingFamily
+    ? previousPhraseLastToken?.midiVoicing
+    : undefined;
 
   progression.steps.forEach((step, index) => {
     const token = buildChordToken({
@@ -200,7 +292,7 @@ export function generatePhrase({
   });
 
   return {
-    id: `phrase:${config.mode}:${config.lane}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
+    id: `phrase:${config.mode}:${config.lane}:${config.improvisationProgressionMode}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
     lane: config.lane,
     tonic,
     tempo,

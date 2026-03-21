@@ -9,6 +9,9 @@ describe('progressStore', () => {
   it('persists and reloads progress', () => {
     const progress = createDefaultProgressState();
     progress.exerciseConfig.lane = 'aeolian';
+    progress.exerciseConfig.mode = 'improvisation';
+    progress.exerciseConfig.improvisationProgressionMode = 'chained';
+    progress.exerciseConfig.chainMovement = 72;
     progress.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'] = {
       attempts: 4,
       successes: 3,
@@ -22,6 +25,8 @@ describe('progressStore', () => {
     const loaded = loadProgressState();
 
     expect(loaded.exerciseConfig.lane).toBe('aeolian');
+    expect(loaded.exerciseConfig.improvisationProgressionMode).toBe('chained');
+    expect(loaded.exerciseConfig.chainMovement).toBe(72);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1']).toBeDefined();
   });
@@ -34,6 +39,8 @@ describe('progressStore', () => {
           mode: 'guided',
           lane: 'ionian',
           rhythm: 'all',
+          improvisationProgressionMode: 'chained',
+          chainMovement: 180,
         },
         unlocksByLane: {
           ionian: {
@@ -61,6 +68,8 @@ describe('progressStore', () => {
     const loaded = loadProgressState();
 
     expect(loaded.unlocksByLane.ionian.unlockedPackIds.length).toBeGreaterThan(0);
+    expect(loaded.exerciseConfig.improvisationProgressionMode).toBe('chained');
+    expect(loaded.exerciseConfig.chainMovement).toBe(100);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'].attempts).toBe(8);
   });

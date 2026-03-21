@@ -10,7 +10,7 @@ import type {
 } from '../../types/progress';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const ALL_LANES: ModeLane[] = [
   'ionian',
@@ -27,7 +27,17 @@ function defaultExerciseConfig(): ExerciseConfig {
     mode: 'guided',
     lane: 'ionian',
     rhythm: 'all',
+    improvisationProgressionMode: 'random',
+    chainMovement: 35,
   };
+}
+
+function normalizeChainMovement(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return defaultExerciseConfig().chainMovement;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 function defaultSettings(): UserSettings {
@@ -121,6 +131,7 @@ function mergeProgress(raw: Partial<ProgressState>): ProgressState {
     exerciseConfig: {
       ...defaults.exerciseConfig,
       ...raw.exerciseConfig,
+      chainMovement: normalizeChainMovement(raw.exerciseConfig?.chainMovement),
     },
     settings: {
       ...defaults.settings,
