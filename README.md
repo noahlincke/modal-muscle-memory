@@ -65,8 +65,10 @@ Set these env vars to enable passwordless email auth and remote progress sync:
 
 ```bash
 VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
+VITE_SUPABASE_PUBLISHABLE_KEY=...
 ```
+
+`VITE_SUPABASE_ANON_KEY` is still accepted as a fallback, but the app now prefers the publishable key name to match the current Supabase dashboard.
 
 Apply [supabase/schema.sql](/Users/nlincke/Desktop/noahlincke_web/pianokeybr/modal-muscle-memory-trainer/supabase/schema.sql) in the Supabase SQL editor.
 
