@@ -59,6 +59,19 @@ npm run lint
 npm run build
 ```
 
+## Supabase Cloud Save
+
+Set these env vars to enable passwordless email auth and remote progress sync:
+
+```bash
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
+
+Apply [supabase/schema.sql](/Users/nlincke/Desktop/noahlincke_web/pianokeybr/modal-muscle-memory-trainer/supabase/schema.sql) in the Supabase SQL editor.
+
+Without those vars, the app stays fully local and continues using browser storage only.
+
 ## Deployment
 
 - `npm run build:mmm` builds the app for hosting at subpath `/mmm/`.

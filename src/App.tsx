@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import {
   applyCurriculumPreset,
   getCurriculumPreset,
@@ -26,6 +27,8 @@ import {
   qwertyControlActionForKey,
   qwertyFriendlyRangeForOctaveShift,
 } from './lib/input/qwertyInput';
+import { loadRemoteProgress, saveRemoteProgress } from './lib/auth/progressSync';
+import { getSupabaseClient, isSupabaseConfigured } from './lib/auth/supabaseClient';
 import { loadProgressState, pushAttempt, pushSession, saveProgressState } from './lib/storage/progressStore';
 import { median } from './lib/theory/noteUtils';
 import {
@@ -270,11 +273,22 @@ function improvisationOverlayForEvent(
 }
 
 export default function App() {
+  const supabase = useMemo(() => getSupabaseClient(), []);
   const [screen, setScreen] = useState<Screen>('practice');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => loadInitialTheme());
   const [progress, setProgress] = useState<ProgressState>(() => loadProgressState());
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [authStatusText, setAuthStatusText] = useState<string | null>(
+    isSupabaseConfigured() ? null : 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable cloud save.',
+  );
+  const [cloudSyncState, setCloudSyncState] = useState<'offline' | 'idle' | 'sending_link' | 'syncing' | 'synced' | 'error'>(
+    isSupabaseConfigured() ? 'idle' : 'offline',
+  );
   const progressRef = useRef<ProgressState>(progress);
+  const remoteSyncReadyRef = useRef(false);
+  const remoteSyncTimerRef = useRef<number | null>(null);
+  const authUserIdRef = useRef<string | null>(null);
 
   const [phrase, setPhrase] = useState<Phrase | null>(null);
   const phraseRef = useRef<Phrase | null>(null);
@@ -338,6 +352,79 @@ export default function App() {
   }, [progress]);
 
   useEffect(() => {
+    if (!supabase) {
+      return undefined;
+    }
+
+    let active = true;
+
+    const syncSession = async (session: Session | null) => {
+      if (!active) {
+        return;
+      }
+
+      if (!session?.user) {
+        authUserIdRef.current = null;
+        remoteSyncReadyRef.current = false;
+        setAuthEmail(null);
+        setCloudSyncState('idle');
+        return;
+      }
+
+      authUserIdRef.current = session.user.id;
+      setAuthEmail(session.user.email ?? null);
+      setAuthStatusText(null);
+      setCloudSyncState('syncing');
+      remoteSyncReadyRef.current = false;
+
+      try {
+        const remoteProgress = await loadRemoteProgress(supabase, session.user.id);
+        if (!active || authUserIdRef.current !== session.user.id) {
+          return;
+        }
+
+        if (remoteProgress) {
+          progressRef.current = remoteProgress;
+          setProgress(remoteProgress);
+          saveProgressState(remoteProgress);
+        } else {
+          await saveRemoteProgress(supabase, session.user.id, progressRef.current);
+        }
+
+        remoteSyncReadyRef.current = true;
+        setCloudSyncState('synced');
+      } catch (error) {
+        remoteSyncReadyRef.current = false;
+        setCloudSyncState('error');
+        setAuthStatusText(error instanceof Error ? error.message : 'Cloud sync failed.');
+      }
+    };
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        setCloudSyncState('error');
+        setAuthStatusText(error.message);
+        return;
+      }
+
+      void syncSession(data.session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      void syncSession(session);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+      if (remoteSyncTimerRef.current !== null) {
+        window.clearTimeout(remoteSyncTimerRef.current);
+        remoteSyncTimerRef.current = null;
+      }
+    };
+  }, [supabase]);
+
+  useEffect(() => {
     qwertyOctaveShiftRef.current = qwertyOctaveShift;
   }, [qwertyOctaveShift]);
 
@@ -373,6 +460,99 @@ export default function App() {
     setProgress(next);
     saveProgressState(next);
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !remoteSyncReadyRef.current || !authUserIdRef.current) {
+      return undefined;
+    }
+
+    if (remoteSyncTimerRef.current !== null) {
+      window.clearTimeout(remoteSyncTimerRef.current);
+    }
+
+    remoteSyncTimerRef.current = window.setTimeout(() => {
+      const userId = authUserIdRef.current;
+      if (!userId) {
+        return;
+      }
+
+      setCloudSyncState('syncing');
+      void saveRemoteProgress(supabase, userId, progressRef.current)
+        .then(() => {
+          setCloudSyncState('synced');
+          setAuthStatusText(null);
+        })
+        .catch((error) => {
+          setCloudSyncState('error');
+          setAuthStatusText(error instanceof Error ? error.message : 'Cloud sync failed.');
+        });
+    }, 500);
+
+    return () => {
+      if (remoteSyncTimerRef.current !== null) {
+        window.clearTimeout(remoteSyncTimerRef.current);
+        remoteSyncTimerRef.current = null;
+      }
+    };
+  }, [progress, supabase]);
+
+  const requestEmailSignIn = useCallback((email: string) => {
+    if (!supabase || email.length === 0) {
+      return;
+    }
+
+    setCloudSyncState('sending_link');
+    setAuthStatusText(null);
+    void supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    }).then(({ error }) => {
+      if (error) {
+        setCloudSyncState('error');
+        setAuthStatusText(error.message);
+        return;
+      }
+
+      setCloudSyncState('idle');
+      setAuthStatusText(`Sign-in link sent to ${email}.`);
+    });
+  }, [supabase]);
+
+  const signOut = useCallback(() => {
+    if (!supabase) {
+      return;
+    }
+
+    void supabase.auth.signOut().then(({ error }) => {
+      if (error) {
+        setCloudSyncState('error');
+        setAuthStatusText(error.message);
+        return;
+      }
+
+      setAuthStatusText('Signed out. Local progress remains in this browser.');
+    });
+  }, [supabase]);
+
+  const syncNow = useCallback(() => {
+    const userId = authUserIdRef.current;
+    if (!supabase || !userId) {
+      return;
+    }
+
+    setCloudSyncState('syncing');
+    setAuthStatusText(null);
+    void saveRemoteProgress(supabase, userId, progressRef.current)
+      .then(() => {
+        setCloudSyncState('synced');
+      })
+      .catch((error) => {
+        setCloudSyncState('error');
+        setAuthStatusText(error instanceof Error ? error.message : 'Cloud sync failed.');
+      });
+  }, [supabase]);
 
   useEffect(() => {
     if (midiState.ready) {
@@ -1576,11 +1756,18 @@ export default function App() {
           progress={progress}
           inputMode={inputMode}
           potentialPhraseCount={potentialPhraseCount}
+          authConfigured={isSupabaseConfigured()}
+          authEmail={authEmail}
+          authStatusText={authStatusText}
+          cloudSyncState={cloudSyncState}
           onClose={() => setSettingsOpen(false)}
           onOpenProgress={() => {
             setSettingsOpen(false);
             setScreen('progress');
           }}
+          onRequestEmailSignIn={requestEmailSignIn}
+          onSignOut={signOut}
+          onSyncNow={syncNow}
           onSelectMode={selectMode}
           onSelectGuidedFlowMode={selectGuidedFlowMode}
           onSelectCurriculumPreset={selectCurriculumPreset}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   applyCurriculumPreset,
   CONTENT_BLOCKS,
@@ -22,8 +22,15 @@ interface PracticeSettingsDrawerProps {
   progress: ProgressState;
   inputMode: 'midi' | 'qwerty';
   potentialPhraseCount: number;
+  authConfigured: boolean;
+  authEmail: string | null;
+  authStatusText: string | null;
+  cloudSyncState: 'offline' | 'idle' | 'sending_link' | 'syncing' | 'synced' | 'error';
   onClose: () => void;
   onOpenProgress: () => void;
+  onRequestEmailSignIn: (email: string) => void;
+  onSignOut: () => void;
+  onSyncNow: () => void;
   onSelectMode: (mode: ProgressState['exerciseConfig']['mode']) => void;
   onSelectGuidedFlowMode: (mode: ProgressState['exerciseConfig']['guidedFlowMode']) => void;
   onSelectCurriculumPreset: (presetId: CurriculumPresetId) => void;
@@ -63,8 +70,15 @@ export function PracticeSettingsDrawer({
   progress,
   inputMode,
   potentialPhraseCount,
+  authConfigured,
+  authEmail,
+  authStatusText,
+  cloudSyncState,
   onClose,
   onOpenProgress,
+  onRequestEmailSignIn,
+  onSignOut,
+  onSyncNow,
   onSelectMode,
   onSelectGuidedFlowMode,
   onSelectCurriculumPreset,
@@ -79,6 +93,7 @@ export function PracticeSettingsDrawer({
   onToggleComputerKeyboardAudio,
   onToggleKeyboardFriendlyVoicings,
 }: PracticeSettingsDrawerProps) {
+  const [emailInput, setEmailInput] = useState('');
   const isImprovisationMode = progress.exerciseConfig.mode === 'improvisation';
   const config = progress.exerciseConfig;
   const selectedKeySet = KEY_SET_OPTIONS.find((option) => option.id === progress.exerciseConfig.keySet) ?? null;
@@ -171,12 +186,57 @@ export function PracticeSettingsDrawer({
             </span>
             <div className="settings-section-copy">
               <h3>Profile</h3>
-              <p>Progress remains local for now. Cloud save will attach here once auth and sync land.</p>
+              <p>{authConfigured
+                ? 'Local progress stays in browser storage and can also sync to your Supabase account.'
+                : 'Cloud save is disabled until Supabase env vars are configured at build time.'}</p>
             </div>
           </div>
           <div className="settings-actions">
             <button type="button" onClick={onOpenProgress}>View Progress</button>
+            {authConfigured && authEmail ? (
+              <>
+                <button type="button" onClick={onSyncNow}>Sync Now</button>
+                <button type="button" onClick={onSignOut}>Sign Out</button>
+              </>
+            ) : null}
           </div>
+          {authConfigured && !authEmail ? (
+            <div className="settings-auth-row">
+              <input
+                type="email"
+                className="settings-text-input"
+                placeholder="name@example.com"
+                value={emailInput}
+                onChange={(event) => setEmailInput(event.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => onRequestEmailSignIn(emailInput.trim())}
+                disabled={emailInput.trim().length === 0 || cloudSyncState === 'sending_link'}
+              >
+                {cloudSyncState === 'sending_link' ? 'Sending…' : 'Email Sign-In Link'}
+              </button>
+            </div>
+          ) : null}
+          {authEmail ? (
+            <p className="settings-meta">Signed in as {authEmail}</p>
+          ) : null}
+          {authConfigured ? (
+            <p className="settings-meta">
+              Cloud sync: {cloudSyncState === 'synced'
+                ? 'Synced'
+                : cloudSyncState === 'syncing'
+                  ? 'Syncing…'
+                  : cloudSyncState === 'sending_link'
+                    ? 'Sending link…'
+                    : cloudSyncState === 'error'
+                      ? 'Error'
+                      : 'Local only'}
+            </p>
+          ) : null}
+          {authStatusText ? (
+            <p className="settings-meta">{authStatusText}</p>
+          ) : null}
         </section>
 
         <section className="settings-section">

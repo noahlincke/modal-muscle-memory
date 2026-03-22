@@ -627,6 +627,7 @@ html[data-immersive='true'] .keyboard-caption {
   max-width: 100%;
   display: grid;
   gap: 0.28rem;
+  justify-self: center;
 }
 
 .qwerty-heading {
@@ -1623,6 +1624,29 @@ html[data-immersive='true'] .manual-advance-hint {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
+}
+
+.settings-auth-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.settings-text-input {
+  min-width: 16rem;
+  flex: 1 1 16rem;
+  padding: 0.72rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  color: var(--ink);
+  font: inherit;
+}
+
+.settings-text-input::placeholder {
+  color: var(--ink-soft);
 }
 
 .settings-toggle-stack {

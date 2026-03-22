@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:root": "tsc -b && vite build",
     "build:mmm": "tsc -b && vite build --base=/mmm/",
+    "build:deploy:root": "npm run build:root && cp deploy/hostineer/static-root.htaccess dist/.htaccess",
     "build:deploy:mmm": "npm run build:mmm && cp deploy/hostineer/static-subpath.htaccess dist/.htaccess",
     "start:passenger": "node app.cjs",
     "lint": "eslint .",
@@ -16,6 +18,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tonal": "^6.4.3",
