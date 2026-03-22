@@ -52,11 +52,14 @@ interface PracticeLayoutProps {
   onOpenSettings: () => void;
 }
 
-function MetronomeIcon() {
+function MetronomeIcon({ enabled }: { enabled: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M7 20h10l-1.3-11H8.3L7 20Zm4.3-14 1.1-2h-1l-1.1 2H8.6L6.7 9h10.6l-1.9-3h-4.1Z" fill="currentColor" />
       <path d="m12 11 2.2 5.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      {!enabled ? (
+        <path d="M6 6 18 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      ) : null}
     </svg>
   );
 }
@@ -69,16 +72,30 @@ function PlayIcon() {
   );
 }
 
-function KeyboardIcon() {
+function KeyboardIcon({ visible }: { visible: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <rect x="3" y="6.5" width="18" height="11" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="M6.2 10.2v7.3M9.5 10.2v7.3M12.8 10.2v7.3M16.1 10.2v7.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      {!visible ? (
+        <path d="M5.4 5.4 18.6 18.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      ) : null}
     </svg>
   );
 }
 
-function CircleArrowIcon() {
+function CircleArrowIcon({ mode }: { mode: CircleVisualizationMode }) {
+  if (mode === 'intervals') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        <circle cx="12" cy="5.8" r="1.4" fill="currentColor" />
+        <circle cx="17.4" cy="15.1" r="1.4" fill="currentColor" />
+        <circle cx="6.6" cy="15.1" r="1.4" fill="currentColor" />
+      </svg>
+    );
+  }
+
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
@@ -89,7 +106,16 @@ function CircleArrowIcon() {
   );
 }
 
-function FullscreenIcon() {
+function FullscreenIcon({ immersive }: { immersive: boolean }) {
+  if (immersive) {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 4.5H4.5V9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9.2 9.2 4.8 4.8M14.8 9.2l4.4-4.4M14.8 14.8l4.4 4.4M9.2 14.8l-4.4 4.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -272,29 +298,29 @@ export function PracticeLayout({
 
           <button
             type="button"
-            className={`icon-button ${immersiveMode ? 'active' : ''}`.trim()}
+            className="icon-button"
             aria-label={immersiveMode ? 'Exit immersive fullscreen mode' : 'Enter immersive fullscreen mode'}
             title={immersiveMode ? 'Exit immersive mode' : 'Enter immersive mode'}
             onClick={onToggleImmersiveMode}
           >
-            <FullscreenIcon />
+            <FullscreenIcon immersive={immersiveMode} />
           </button>
 
           <button
             type="button"
-            className={`icon-button circle-visual-toggle ${circleVisualizationMode === 'chord_arrows' ? 'active' : ''}`.trim()}
+            className="icon-button circle-visual-toggle"
             aria-label={circleVisualizationMode === 'chord_arrows'
               ? 'Circle arrows active. Switch to interval markers'
               : 'Circle intervals active. Switch to chord arrows'}
             title={circleVisualizationMode === 'chord_arrows' ? 'Circle view: chord arrows' : 'Circle view: interval markers'}
             onClick={onToggleCircleVisualizationMode}
           >
-            <CircleArrowIcon />
+            <CircleArrowIcon mode={circleVisualizationMode} />
           </button>
 
           <button
             type="button"
-            className={`icon-button ${practiceTrackingMode === 'test' ? 'active' : ''}`.trim()}
+            className="icon-button"
             aria-label={practiceTrackingMode === 'test'
               ? 'Test mode active. Count attempts and mastery. Switch to play mode'
               : 'Play mode active. Do not count attempts or mastery. Switch to test mode'}
@@ -308,12 +334,12 @@ export function PracticeLayout({
 
           <button
             type="button"
-            className={`icon-button ${keyboardVisible ? 'active' : ''}`.trim()}
+            className="icon-button"
             aria-label={keyboardVisible ? 'Hide keyboard panel' : 'Show keyboard panel'}
             onClick={onToggleKeyboardVisible}
             title={keyboardVisible ? 'Hide keyboard panel' : 'Show keyboard panel'}
           >
-            <KeyboardIcon />
+            <KeyboardIcon visible={keyboardVisible} />
           </button>
 
           {exerciseMode === 'improvisation' ? (
@@ -340,11 +366,11 @@ export function PracticeLayout({
 
           <button
             type="button"
-            className={`icon-button ${metronomeEnabled ? 'active' : ''}`.trim()}
+            className="icon-button"
             aria-label={metronomeEnabled ? 'Disable metronome' : 'Enable metronome'}
             onClick={onToggleMetronome}
           >
-            <MetronomeIcon />
+            <MetronomeIcon enabled={metronomeEnabled} />
           </button>
 
           <label className="tempo-field" aria-label="Tempo in BPM">

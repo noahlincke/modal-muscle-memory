@@ -304,12 +304,6 @@ html[data-immersive='true'] .icon-button {
   letter-spacing: 0.02em;
 }
 
-.icon-button.active {
-  background: var(--accent);
-  border-color: var(--button-active-border);
-  color: #fff;
-}
-
 .theme-toggle {
   position: relative;
   overflow: hidden;
