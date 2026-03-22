@@ -149,14 +149,17 @@ export function NotationStrip({
 
     const barCount = Math.max(...phrase.events.map((event) => event.bar));
     const containerWidth = Math.max(containerRef.current.clientWidth, 960);
-    const barWidth = Math.max(260, Math.min(460, Math.floor((containerWidth - 24) / barCount)));
-    const width = Math.max(containerWidth, barCount * barWidth + 16);
+    const horizontalPadding = 48;
+    const rightEdgePadding = 28;
+    const barWidth = Math.max(260, Math.min(460, Math.floor((containerWidth - horizontalPadding) / barCount)));
+    const contentWidth = barCount * barWidth;
+    const width = Math.max(containerWidth, contentWidth + horizontalPadding + rightEdgePadding);
     const topHudHeight = exerciseMode === 'improvisation' && clef === 'bass' ? 46 : 0;
     const bottomHudHeight = exerciseMode === 'improvisation' && clef === 'treble' ? 48 : 0;
     const height = 306 + topHudHeight + bottomHudHeight;
     const staveY = 96 + topHudHeight;
     const chordLabelY = 48 + topHudHeight;
-    const contentStartX = Math.max(36, Math.floor((width - barCount * barWidth) / 2));
+    const contentStartX = Math.max(36, Math.floor((width - contentWidth - rightEdgePadding) / 2));
 
     const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
     renderer.resize(width, height);

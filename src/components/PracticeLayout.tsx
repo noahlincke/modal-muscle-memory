@@ -169,25 +169,6 @@ function ClefIcon({ clef }: { clef: 'treble' | 'bass' }) {
   return <span aria-hidden="true">{clef === 'bass' ? '𝄢' : '𝄞'}</span>;
 }
 
-function rhythmLabelFromId(rhythmCellId: string | null): string {
-  switch (rhythmCellId) {
-    case 'block_whole':
-      return 'Whole Notes';
-    case 'quarters':
-      return 'Quarter Notes';
-    case 'charleston':
-      return 'Charleston';
-    case 'anticipation_4and':
-      return 'Anticipation';
-    case 'offbeat_1and_3':
-      return 'Offbeats';
-    case 'syncopated_2and_4':
-      return 'Syncopated';
-    default:
-      return '—';
-  }
-}
-
 function timingBucketLabel(bucket: EvaluationResult['timingBucket']): string {
   if (bucket === 'on_time') {
     return 'On Time';
@@ -250,13 +231,13 @@ export function PracticeLayout({
   const progressionSubtitleLabel = phrase ? progressionSubtitle(phrase.progression.id) : null;
   const tonicLabel = phrase?.tonic ?? '—';
 
-  const currentRhythmLabel = currentEvent ? rhythmLabelFromId(currentEvent.rhythmCellId) : '—';
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
   const chordLabel = latestEvaluation ? (latestEvaluation.success ? '✓' : 'X') : '—';
   const chordHighlightColor = intervalColorForTonicAndRoot(phrase?.tonic ?? null, currentToken?.pitchClasses[0] ?? null);
   const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided Practice';
   const showPerformanceStats = exerciseMode !== 'improvisation';
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
+  const [showKeyboardGuide, setShowKeyboardGuide] = useState(false);
   const midiWarning = inputMode === 'qwerty'
     ? 'QWERTY mode active · connect MIDI to switch'
     : (midiState.error ?? 'MIDI not detected');
@@ -264,6 +245,12 @@ export function PracticeLayout({
   useEffect(() => {
     setTempoInput(String(tempo));
   }, [tempo]);
+
+  useEffect(() => {
+    if (exerciseMode !== 'improvisation' || !keyboardVisible) {
+      setShowKeyboardGuide(false);
+    }
+  }, [exerciseMode, keyboardVisible]);
 
   const commitTempoInput = () => {
     const trimmed = tempoInput.trim();
@@ -285,8 +272,7 @@ export function PracticeLayout({
     <section className="practice-screen">
       <header className="practice-topbar">
         <div className="practice-heading">
-          <p className="eyebrow">Modal Muscle Memory</p>
-          <strong>{curriculumLabel} {modeLabel}</strong>
+          <strong>Modal Muscle Memory</strong>
         </div>
 
         <div className="practice-controls">
@@ -432,15 +418,11 @@ export function PracticeLayout({
 
           <article className="hud-primary-cell">
             <p className="hud-caption">Content</p>
-            <div className="hud-primary-value hud-primary-meta">{curriculumLabel}</div>
+            <div className="hud-primary-value hud-primary-exercise-value hud-primary-content-value">
+              <span>{curriculumLabel}</span>
+              <small>{modeLabel}</small>
+            </div>
           </article>
-
-          {exerciseMode === 'guided' ? (
-            <article className="hud-primary-cell">
-              <p className="hud-caption">Rhythm</p>
-              <div className="hud-primary-value hud-primary-meta">{currentRhythmLabel}</div>
-            </article>
-          ) : null}
         </div>
 
         {showPerformanceStats ? (
@@ -487,15 +469,35 @@ export function PracticeLayout({
         </aside>
 
         {keyboardVisible ? (
-          <div className="keyboard-lane">
+          <div
+            className={`keyboard-lane ${exerciseMode === 'improvisation' ? 'is-interactive' : ''}`.trim()}
+            onClick={exerciseMode === 'improvisation' ? () => setShowKeyboardGuide((value) => !value) : undefined}
+            onKeyDown={exerciseMode === 'improvisation'
+              ? (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setShowKeyboardGuide((value) => !value);
+                  }
+                }
+              : undefined}
+            role={exerciseMode === 'improvisation' ? 'button' : undefined}
+            tabIndex={exerciseMode === 'improvisation' ? 0 : undefined}
+            aria-expanded={exerciseMode === 'improvisation' ? showKeyboardGuide : undefined}
+            aria-label={exerciseMode === 'improvisation'
+              ? (showKeyboardGuide ? 'Hide keyboard guide' : 'Show keyboard guide')
+              : undefined}
+          >
             {inputMode === 'qwerty' ? (
               <p className="keyboard-caption">
                 Computer keyboard mode. Z shifts down, X shifts up, and bass clef resets the board to A = C3.
               </p>
-            ) : exerciseMode === 'improvisation' ? (
-              <p className="keyboard-caption">
-                Solid dots mark chord tones. The lower row shows the current scale and the upper row shows the next scale. Use the 123/Eb button to swap interval numbers and note names.
-              </p>
+            ) : null}
+            {exerciseMode === 'improvisation' ? (
+              <div className={`keyboard-guide-panel ${showKeyboardGuide ? 'is-open' : ''}`.trim()}>
+                <p className="keyboard-caption keyboard-guide-copy">
+                  Solid dots mark chord tones. The lower row shows the current scale and the upper row shows the next scale. Use the 123/Eb button to swap interval numbers and note names.
+                </p>
+              </div>
             ) : null}
             {inputMode === 'qwerty' ? (
               <QwertyView

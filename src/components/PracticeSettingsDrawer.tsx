@@ -186,9 +186,8 @@ export function PracticeSettingsDrawer({
             </span>
             <div className="settings-section-copy">
               <h3>Profile</h3>
-              <p>{authConfigured
-                ? 'Local progress stays in browser storage and can also sync to your Supabase account.'
-                : 'Cloud save is disabled until Supabase env vars are configured at build time.'}</p>
+              {!authConfigured ? <p>Cloud save is disabled until Supabase env vars are configured at build time.</p> : null}
+              {authConfigured && !authEmail ? <p>Sign in to sync your progress.</p> : null}
             </div>
           </div>
           <div className="settings-actions">
@@ -376,7 +375,7 @@ export function PracticeSettingsDrawer({
         <section className="settings-section">
           <div className="settings-section-copy">
             <h3>Curriculum</h3>
-            <p>Choose the current practice block. These presets are the first step toward broader content filtering.</p>
+            <p>Choose what you want to practice.</p>
           </div>
           <div className="settings-lane-grid">
             {CURRICULUM_PRESETS.map((preset) => {
@@ -484,7 +483,7 @@ export function PracticeSettingsDrawer({
         <section className="settings-section">
           <div className="settings-section-copy">
             <h3>Computer Keyboard</h3>
-            <p>Use the computer keyboard as a first-party input surface when MIDI is not connected.</p>
+            <p>Use the computer keyboard when MIDI is disconnected.</p>
           </div>
           <div className="settings-toggle-stack">
             <button
@@ -496,7 +495,7 @@ export function PracticeSettingsDrawer({
               <strong>Keyboard Friendly</strong>
               <span>{inputMode === 'qwerty'
                 ? 'Keep generated voicings inside the qwerty range from C to G.'
-                : 'Connect no MIDI device to enable qwerty-range voicings.'}</span>
+                : 'Disconnect MIDI to enable qwerty-range voicings.'}</span>
             </button>
             <button
               type="button"
@@ -507,7 +506,7 @@ export function PracticeSettingsDrawer({
               <strong>Computer Audio</strong>
               <span>{inputMode === 'qwerty'
                 ? 'Play keyboard notes through the same voice used by reference playback.'
-                : 'Connect no MIDI device to enable computer-keyboard audio.'}</span>
+                : 'Disconnect MIDI to enable computer-keyboard audio.'}</span>
             </button>
           </div>
         </section>
