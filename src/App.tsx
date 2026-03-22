@@ -70,6 +70,14 @@ function nextTheme(theme: ThemeMode): ThemeMode {
   return 'light';
 }
 
+function authRedirectUrl(): string {
+  if (typeof window === 'undefined') {
+    return import.meta.env.BASE_URL;
+  }
+
+  return new URL(import.meta.env.BASE_URL, window.location.origin).toString();
+}
+
 interface PendingChordAdvance {
   nextIndex: number | null;
   acceptedNotes: number[];
@@ -506,7 +514,7 @@ export default function App() {
     void supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: authRedirectUrl(),
       },
     }).then(({ error }) => {
       if (error) {
