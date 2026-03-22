@@ -1,10 +1,15 @@
-import { getPackForLane } from '../../content/packs';
+import { getContentBlock } from '../../content/curriculum';
+import { rootsForKeySet } from '../../content/keys';
+import { PROGRESSION_LIBRARY } from '../../content/progressions';
 import { RHYTHM_CELLS } from '../../content/rhythmCells';
+import { scaleFamilyForScaleId } from '../../content/scales';
 import type {
   Phrase,
   PhraseFocusType,
   ProgressionDefinition,
+  ProgressionFamilyTag,
   RhythmCellId,
+  ScaleFamilyId,
   VoicingFamily,
 } from '../../types/music';
 import type { ExerciseConfig, ProgressState, UnlockState } from '../../types/progress';
@@ -53,21 +58,51 @@ function intersect<T>(a: T[], b: T[]): T[] {
   return a.filter((item) => bSet.has(item));
 }
 
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
 function parseRomanFromTokenId(tokenId: string): string | null {
   const parts = tokenId.split(':');
   return parts.length >= 3 ? parts[2] : null;
+}
+
+interface PhraseIdMetadata {
+  progressionId: string;
+  tonic: string;
+  voicingFamily: VoicingFamily;
+}
+
+function parsePhraseIdMetadata(phraseId: string): PhraseIdMetadata | null {
+  const parts = phraseId.split(':');
+  if (parts.length < 7) {
+    return null;
+  }
+
+  const progressionId = parts[4];
+  const tonic = parts[5];
+  const voicingFamily = parts[6] as VoicingFamily;
+
+  if (!progressionId || !tonic || !voicingFamily) {
+    return null;
+  }
+
+  return {
+    progressionId,
+    tonic,
+    voicingFamily,
+  };
 }
 
 function pickProgressionForFocus(
   progressions: ProgressionDefinition[],
   focus: PhraseFocusType,
   progress: ProgressState,
-  lane: ExerciseConfig['lane'],
   random: () => number,
 ): ProgressionDefinition {
   if (focus === 'weak_node') {
     const weakNode = Object.entries(progress.nodeMastery)
-      .filter(([tokenId, stat]) => tokenId.startsWith(`${lane}:`) && stat.attempts > 1)
+      .filter(([, stat]) => stat.attempts > 1)
       .sort((a, b) => a[1].accuracyEwma - b[1].accuracyEwma)[0];
 
     const weakRoman = weakNode ? parseRomanFromTokenId(weakNode[0]) : null;
@@ -114,6 +149,26 @@ function pickProgressionForFocus(
 
 function isChainedImprovisation(config: ExerciseConfig): boolean {
   return config.mode === 'improvisation' && config.improvisationProgressionMode === 'chained';
+}
+
+function isGuidedChaining(config: ExerciseConfig): boolean {
+  return config.mode === 'guided' && config.guidedFlowMode === 'musical_chaining';
+}
+
+function isImprovementFlow(config: ExerciseConfig): boolean {
+  return (config.mode === 'guided' && config.guidedFlowMode === 'targeting_improvement')
+    || (config.mode === 'improvisation' && config.improvisationProgressionMode === 'targeting_improvement');
+}
+
+function isRandomFlow(config: ExerciseConfig): boolean {
+  return (config.mode === 'guided' && config.guidedFlowMode === 'random')
+    || (config.mode === 'improvisation' && config.improvisationProgressionMode === 'random');
+}
+
+interface ImprovementTarget {
+  progression: ProgressionDefinition;
+  tonic: string;
+  voicingFamily: VoicingFamily;
 }
 
 function progressionLookup(progressions: ProgressionDefinition[]): Map<string, ProgressionDefinition> {
@@ -164,6 +219,83 @@ function pickChainedProgression(
   );
 }
 
+function pickImprovementTarget(
+  progressions: ProgressionDefinition[],
+  progress: ProgressState,
+  availableRoots: string[],
+  unlocked: UnlockState,
+  chainMovement: number,
+  random: () => number,
+): ImprovementTarget | null {
+  const byId = progressionLookup(progressions);
+  const allowedRoots = new Set(availableRoots);
+  const availableVoicings = new Set(unlocked.voicings);
+  const rankedTargets = [...progress.sessionHistory]
+    .slice(-24)
+    .flatMap((session) => session.phraseIds.map((phraseId) => ({
+      phraseId,
+      accuracy: session.accuracy,
+      endedAt: session.endedAt,
+    })))
+    .map((entry) => {
+      const parsed = parsePhraseIdMetadata(entry.phraseId);
+      if (!parsed) {
+        return null;
+      }
+
+      const progression = byId.get(parsed.progressionId);
+      if (!progression) {
+        return null;
+      }
+
+      if (!allowedRoots.has(parsed.tonic)) {
+        return null;
+      }
+
+      if (!availableVoicings.has(parsed.voicingFamily) || !progression.allowedVoicings.includes(parsed.voicingFamily)) {
+        return null;
+      }
+
+      return {
+        progression,
+        tonic: parsed.tonic,
+        voicingFamily: parsed.voicingFamily,
+        accuracy: entry.accuracy,
+        endedAt: entry.endedAt,
+      };
+    })
+    .filter((target): target is ImprovementTarget & { accuracy: number; endedAt: string } => Boolean(target))
+    .sort((a, b) => {
+      if (a.accuracy !== b.accuracy) {
+        return a.accuracy - b.accuracy;
+      }
+
+      return new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime();
+    });
+
+  if (rankedTargets.length === 0) {
+    return null;
+  }
+
+  const movement = Math.min(1, Math.max(0, chainMovement / 100));
+  const candidateCount = Math.max(
+    1,
+    Math.min(
+      rankedTargets.length,
+      1 + Math.round(movement * Math.min(4, rankedTargets.length - 1)),
+    ),
+  );
+  const candidates = rankedTargets.slice(0, candidateCount);
+
+  return chooseWeighted(
+    candidates.map((candidate, index) => ({
+      value: candidate,
+      weight: (candidateCount - index) + ((1 - movement) * 2.5),
+    })),
+    random,
+  );
+}
+
 function selectVoicing(
   unlocked: UnlockState,
   progression: ProgressionDefinition,
@@ -188,12 +320,16 @@ function selectRhythm(
   requested: RhythmCellId,
   random: () => number,
 ): RhythmCellId {
-  if (selectedRhythm !== 'all' && unlocked.rhythms.includes(selectedRhythm)) {
-    return selectedRhythm;
+  const selectedPool = selectedRhythm.includes('all')
+    ? unlocked.rhythms
+    : selectedRhythm.filter((rhythm): rhythm is RhythmCellId => rhythm !== 'all' && unlocked.rhythms.includes(rhythm));
+
+  if (selectedPool.includes(requested)) {
+    return requested;
   }
 
-  if (unlocked.rhythms.includes(requested)) {
-    return requested;
+  if (selectedPool.length > 0) {
+    return choose(selectedPool, random);
   }
 
   const fallback = unlocked.rhythms.filter((rhythm) =>
@@ -201,6 +337,66 @@ function selectRhythm(
   );
 
   return fallback.length > 0 ? choose(fallback, random) : 'block_whole';
+}
+
+function progressionScaleFamilyIds(progression: ProgressionDefinition): ScaleFamilyId[] {
+  return unique(
+    progression.steps.flatMap((step) => [
+      ...step.recommendedScaleIds.map(scaleFamilyForScaleId),
+      ...step.colorScaleIds.map(scaleFamilyForScaleId),
+    ]),
+  );
+}
+
+function progressionMatchesFamilies(
+  progression: ProgressionDefinition,
+  enabledScaleFamilyIds: ScaleFamilyId[],
+  enabledProgressionFamilyTags: ProgressionFamilyTag[],
+): boolean {
+  const scaleFamilyMatch = enabledScaleFamilyIds.length > 0
+    && progressionScaleFamilyIds(progression).some((familyId) => enabledScaleFamilyIds.includes(familyId));
+  const progressionFamilyMatch = enabledProgressionFamilyTags.length > 0
+    && progression.tags.families.some((family) => enabledProgressionFamilyTags.includes(family));
+
+  return scaleFamilyMatch && progressionFamilyMatch;
+}
+
+function progressionsForContentBlocks(blockIds: ExerciseConfig['enabledContentBlockIds']): ProgressionDefinition[] {
+  if (blockIds.length === 0) {
+    return [];
+  }
+
+  const ids = unique(blockIds.flatMap((blockId) => getContentBlock(blockId)?.progressionIds ?? []));
+  const allowed = new Set(ids);
+  return PROGRESSION_LIBRARY.filter((progression) => allowed.has(progression.id));
+}
+
+function queryProgressions(config: ExerciseConfig): ProgressionDefinition[] {
+  return progressionsForContentBlocks(config.enabledContentBlockIds).filter((progression) => progressionMatchesFamilies(
+    progression,
+    config.enabledScaleFamilyIds,
+    config.enabledProgressionFamilyTags,
+  ));
+}
+
+export function matchingProgressionIds(config: ExerciseConfig): string[] {
+  return queryProgressions(config).map((progression) => progression.id);
+}
+
+export function countMatchingProgressions(config: ExerciseConfig): number {
+  return matchingProgressionIds(config).length;
+}
+
+function aggregateUnlockState(progress: ProgressState): UnlockState {
+  const allUnlocks = Object.values(progress.unlocksByLane);
+  return {
+    roots: unique(allUnlocks.flatMap((unlock) => unlock.roots)),
+    modes: unique(allUnlocks.flatMap((unlock) => unlock.modes)),
+    voicings: unique(allUnlocks.flatMap((unlock) => unlock.voicings)),
+    rhythms: unique(allUnlocks.flatMap((unlock) => unlock.rhythms)),
+    borrowedDepth: Math.max(...allUnlocks.map((unlock) => unlock.borrowedDepth), 0),
+    unlockedPackIds: unique(allUnlocks.flatMap((unlock) => unlock.unlockedPackIds)),
+  };
 }
 
 export function generatePhrase({
@@ -212,14 +408,13 @@ export function generatePhrase({
   midiRange,
   focusOverride,
 }: GeneratePhraseInput): Phrase {
-  const pack = getPackForLane(config.lane);
-  if (!pack) {
-    throw new Error(`No content pack installed for lane: ${config.lane}`);
+  const progressions = queryProgressions(config);
+  if (progressions.length === 0) {
+    throw new Error('No progressions match the current practice filter.');
   }
 
-  const unlocked = progress.unlocksByLane[config.lane];
-  const roots = intersect(pack.roots, unlocked.roots);
-  const progressions = pack.progressions;
+  const unlocked = aggregateUnlockState(progress);
+  const roots = rootsForKeySet(config.keySet);
 
   const focus = focusOverride ?? choosePhraseFocus({
     progress,
@@ -227,12 +422,19 @@ export function generatePhrase({
     random,
   });
 
-  const chainSource = isChainedImprovisation(config) && previousPhrase?.lane === config.lane
+  const chainSource = (isChainedImprovisation(config) || isGuidedChaining(config))
     ? previousPhrase
     : null;
+  const improvementTarget = isImprovementFlow(config)
+    ? pickImprovementTarget(progressions, progress, roots, unlocked, config.chainMovement, random)
+    : null;
   const progression = pickChainedProgression(progressions, chainSource, config.chainMovement, random)
-    ?? pickProgressionForFocus(progressions, focus, progress, config.lane, random);
-  const tonic = chainSource?.tonic ?? (roots.length > 0 ? choose(roots, random) : pack.roots[0]);
+    ?? improvementTarget?.progression
+    ?? (isRandomFlow(config) ? choose(progressions, random) : pickProgressionForFocus(progressions, focus, progress, random));
+  const lane = progression.lane;
+  const tonic = chainSource?.tonic
+    ?? improvementTarget?.tonic
+    ?? (roots.length > 0 ? choose(roots, random) : 'C');
   const previousPhraseLastEvent = chainSource ? chainSource.events[chainSource.events.length - 1] : null;
   const previousPhraseLastToken = previousPhraseLastEvent
     ? chainSource?.tokensById[previousPhraseLastEvent.chordTokenId]
@@ -243,6 +445,11 @@ export function generatePhrase({
     ? previousPhraseLastToken.voicingFamily
     : null;
   const voicingFamily = carryForwardVoicingFamily
+    ?? (improvementTarget
+      && progression.allowedVoicings.includes(improvementTarget.voicingFamily)
+      && unlocked.voicings.includes(improvementTarget.voicingFamily)
+      ? improvementTarget.voicingFamily
+      : null)
     ?? selectVoicing(unlocked, progression, focus, random);
 
   const tokensById: Phrase['tokensById'] = {};
@@ -255,7 +462,7 @@ export function generatePhrase({
   progression.steps.forEach((step, index) => {
     const token = buildChordToken({
       tonic,
-      lane: config.lane,
+      lane,
       roman: step.roman,
       voicingFamily,
       midiRange: midiRange ?? {
@@ -275,9 +482,22 @@ export function generatePhrase({
       progression.rhythmPlan[index % progression.rhythmPlan.length],
       random,
     );
-    const rhythmCell = RHYTHM_CELLS[rhythmCellId];
     const bar = index + 1;
 
+    if (config.mode === 'improvisation') {
+      events.push({
+        id: `${progression.id}:event:${index + 1}:landing`,
+        chordTokenId: token.id,
+        progressionStepIndex: index,
+        bar,
+        beat: 1,
+        durationBeats: 4,
+        rhythmCellId,
+      });
+      return;
+    }
+
+    const rhythmCell = RHYTHM_CELLS[rhythmCellId];
     rhythmCell.hits.forEach((hit, hitIndex) => {
       events.push({
         id: `${progression.id}:event:${index + 1}:${hitIndex + 1}`,
@@ -292,8 +512,8 @@ export function generatePhrase({
   });
 
   return {
-    id: `phrase:${config.mode}:${config.lane}:${config.improvisationProgressionMode}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
-    lane: config.lane,
+    id: `phrase:${config.mode}:${lane}:${config.mode === 'guided' ? config.guidedFlowMode : config.improvisationProgressionMode}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
+    lane,
     tonic,
     tempo,
     timeSignature: '4/4',
@@ -306,17 +526,18 @@ export function generatePhrase({
 }
 
 export function countPotentialStarterPhrases(progress: ProgressState): number {
-  const pack = getPackForLane(progress.exerciseConfig.lane);
-  if (!pack) {
+  const progressions = queryProgressions(progress.exerciseConfig);
+  if (progressions.length === 0) {
     return 0;
   }
 
-  const unlocked = progress.unlocksByLane[progress.exerciseConfig.lane];
-  const rootCount = intersect(pack.roots, unlocked.roots).length || 1;
-  const voicingCount = intersect(pack.voicings, unlocked.voicings).length || 1;
-  const rhythmCount = progress.exerciseConfig.rhythm === 'all'
-    ? (intersect(pack.rhythms, unlocked.rhythms).length || 1)
-    : 1;
+  const unlocked = aggregateUnlockState(progress);
+  const rootCount = rootsForKeySet(progress.exerciseConfig.keySet).length || 1;
+  const voicingCount = unlocked.voicings.length || 1;
+  const selectedRhythms = progress.exerciseConfig.rhythm.includes('all')
+    ? unlocked.rhythms
+    : progress.exerciseConfig.rhythm.filter((rhythm): rhythm is RhythmCellId => rhythm !== 'all' && unlocked.rhythms.includes(rhythm));
+  const rhythmCount = selectedRhythms.length || 1;
 
-  return pack.progressions.length * rootCount * voicingCount * rhythmCount;
+  return progressions.length * rootCount * voicingCount * rhythmCount;
 }

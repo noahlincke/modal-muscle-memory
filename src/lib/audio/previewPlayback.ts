@@ -2,8 +2,24 @@ import { Midi } from 'tonal';
 import type { Phrase } from '../../types/music';
 import { loadTone } from './toneLoader';
 
+function createPracticeSynth(Tone: typeof import('tone')): import('tone').PolySynth<import('tone').Synth> {
+  return new Tone.PolySynth(Tone.Synth, {
+    oscillator: {
+      type: 'triangle',
+    },
+    envelope: {
+      attack: 0.02,
+      decay: 0.15,
+      sustain: 0.2,
+      release: 0.2,
+    },
+  }).toDestination();
+}
+
 export class PreviewPlayback {
   private synth: import('tone').PolySynth<import('tone').Synth> | null = null;
+
+  private inputSynth: import('tone').PolySynth<import('tone').Synth> | null = null;
 
   private clickSynth: import('tone').MembraneSynth | null = null;
 
@@ -17,6 +33,8 @@ export class PreviewPlayback {
 
   private pendingResolve: (() => void) | null = null;
 
+  private activeInputNotes = new Set<string>();
+
   async prepare(): Promise<void> {
     if (this.prepared) {
       return;
@@ -24,17 +42,8 @@ export class PreviewPlayback {
 
     const Tone = await loadTone();
     await Tone.start();
-    this.synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: {
-        type: 'triangle',
-      },
-      envelope: {
-        attack: 0.02,
-        decay: 0.15,
-        sustain: 0.2,
-        release: 0.2,
-      },
-    }).toDestination();
+    this.synth = createPracticeSynth(Tone);
+    this.inputSynth = createPracticeSynth(Tone);
 
     this.clickSynth = new Tone.MembraneSynth({
       pitchDecay: 0.01,
@@ -47,6 +56,32 @@ export class PreviewPlayback {
       },
     }).toDestination();
     this.prepared = true;
+  }
+
+  async playInputNote(noteNumber: number): Promise<void> {
+    await this.prepare();
+    const note = Midi.midiToNoteName(noteNumber, { sharps: true }) ?? 'C4';
+    if (this.activeInputNotes.has(note)) {
+      return;
+    }
+
+    this.activeInputNotes.add(note);
+    this.inputSynth?.triggerAttack(note, undefined, 0.42);
+  }
+
+  releaseInputNote(noteNumber: number): void {
+    const note = Midi.midiToNoteName(noteNumber, { sharps: true }) ?? 'C4';
+    if (!this.activeInputNotes.has(note)) {
+      return;
+    }
+
+    this.activeInputNotes.delete(note);
+    this.inputSynth?.triggerRelease(note);
+  }
+
+  stopInputNotes(): void {
+    this.activeInputNotes.clear();
+    this.inputSynth?.releaseAll();
   }
 
   async playPhrase(

@@ -1,20 +1,34 @@
+import type { CircleVisualizationMode, ImprovisationAdvanceMode } from './music';
 import type {
+  ContentBlockId,
+  CurriculumPresetId,
   ExerciseMode,
+  GuidedFlowMode,
   ImprovisationProgressionMode,
+  KeySetId,
   MasteryStat,
   ModeLane,
   PhraseFocusType,
+  ProgressionFamilyTag,
   RhythmCellId,
   RhythmSelection,
   ScoringMode,
+  ScaleFamilyId,
   VoicingFamily,
 } from './music';
 
 export interface ExerciseConfig {
   mode: ExerciseMode;
+  curriculumPresetId: CurriculumPresetId;
   lane: ModeLane;
+  enabledContentBlockIds: ContentBlockId[];
+  enabledScaleFamilyIds: ScaleFamilyId[];
+  enabledProgressionFamilyTags: ProgressionFamilyTag[];
+  keySet: KeySetId;
   rhythm: RhythmSelection;
+  guidedFlowMode: GuidedFlowMode;
   improvisationProgressionMode: ImprovisationProgressionMode;
+  improvisationAdvanceMode: ImprovisationAdvanceMode;
   chainMovement: number;
 }
 
@@ -41,6 +55,8 @@ export interface AttemptRecord {
 
 export interface SessionRecord {
   id: string;
+  mode: ExerciseMode;
+  curriculumPresetId: CurriculumPresetId;
   lane: ModeLane;
   startedAt: string;
   endedAt: string;
@@ -53,6 +69,7 @@ export interface UserSettings {
   tempo: number;
   metronomeEnabled: boolean;
   showKeyboardPanel: boolean;
+  practiceTrackingMode: 'test' | 'play';
   scaleGuideLabelMode: 'degrees' | 'note_names';
   staffClef: 'treble' | 'bass';
   registerMin: number;
@@ -60,6 +77,10 @@ export interface UserSettings {
   scoringMode: ScoringMode;
   midiInputId: string | null;
   enableReferencePlayback: boolean;
+  enableComputerKeyboardAudio: boolean;
+  keyboardFriendlyVoicings: boolean;
+  circleVisualizationMode: CircleVisualizationMode;
+  immersiveMode: boolean;
 }
 
 export interface ProgressState {

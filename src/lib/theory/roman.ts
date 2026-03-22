@@ -1,5 +1,5 @@
 import { Note } from 'tonal';
-import { pitchClassToSemitone, semitoneToPitchClass } from './noteUtils';
+import { normalizePitchClass, spellScaleDegree } from './noteUtils';
 
 const DEGREE_BY_ROMAN: Record<string, number> = {
   I: 1,
@@ -11,8 +11,6 @@ const DEGREE_BY_ROMAN: Record<string, number> = {
   VII: 7,
 };
 
-const MAJOR_DEGREE_SEMITONES = [0, 2, 4, 5, 7, 9, 11];
-
 export interface ParsedRoman {
   accidental: number;
   degree: number;
@@ -22,6 +20,7 @@ export interface ParsedRoman {
 
 export interface RomanResolution {
   rootPitchClass: string;
+  rootSpelling: string;
   quality: 'maj7' | 'm7' | '7' | 'm7b5' | 'maj' | 'min';
   symbol: string;
 }
@@ -102,16 +101,15 @@ export function qualityToSymbolSuffix(
 export function resolveRomanToChord(tonic: string, roman: string): RomanResolution {
   const tonicPitch = Note.pitchClass(tonic) ?? tonic;
   const parsed = parseRoman(roman);
-  const tonicSemitone = pitchClassToSemitone(tonicPitch);
-  const degreeSemitone = MAJOR_DEGREE_SEMITONES[parsed.degree - 1] + parsed.accidental;
-  const rootSemitone = tonicSemitone + degreeSemitone;
 
-  const rootPitchClass = semitoneToPitchClass(rootSemitone);
+  const rootSpelling = spellScaleDegree(tonicPitch, parsed.degree, parsed.accidental);
+  const rootPitchClass = normalizePitchClass(rootSpelling);
   const quality = inferQuality(parsed);
-  const symbol = `${rootPitchClass}${qualityToSymbolSuffix(quality)}`;
+  const symbol = `${rootSpelling}${qualityToSymbolSuffix(quality)}`;
 
   return {
     rootPitchClass,
+    rootSpelling,
     quality,
     symbol,
   };

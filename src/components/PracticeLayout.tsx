@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
+import { progressionSubtitle } from '../lib/progressionLabels';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
-import type { EvaluationResult, ExerciseMode, ModeLane, Phrase } from '../types/music';
+import type { CircleVisualizationMode, EvaluationResult, ExerciseMode, Phrase } from '../types/music';
 import { CircleOfFifths } from './CircleOfFifths';
 import { NotationStrip } from './NotationStrip';
 import { PianoView } from './PianoView';
+import { QwertyView } from './QwertyView';
 import { ThemeToggle } from './ThemeToggle';
 
 interface PracticeLayoutProps {
   exerciseMode: ExerciseMode;
-  lane: ModeLane;
+  curriculumLabel: string;
+  practiceTrackingMode: 'test' | 'play';
   phrase: Phrase | null;
   clef: 'treble' | 'bass';
   currentEventIndex: number;
@@ -22,6 +25,8 @@ interface PracticeLayoutProps {
   deckMasteryPct: number;
   latestEvaluation: EvaluationResult | null;
   midiState: MidiConnectionState;
+  inputMode: 'midi' | 'qwerty';
+  qwertyOctaveShift: number;
   tempo: number;
   keyboardTargetNotes: number[];
   scaleGuideLabelMode: 'degrees' | 'note_names';
@@ -30,11 +35,16 @@ interface PracticeLayoutProps {
   currentScaleGuideLabels: Record<string, string>;
   nextScalePitchClasses: string[];
   nextScaleGuideLabels: Record<string, string>;
+  circleVisualizationMode: CircleVisualizationMode;
+  immersiveMode: boolean;
   keyboardVisible: boolean;
   metronomeEnabled: boolean;
   onTempoChange: (tempo: number) => void;
   onToggleKeyboardVisible: () => void;
+  onTogglePracticeTrackingMode: () => void;
   onToggleScaleGuideLabelMode: () => void;
+  onToggleCircleVisualizationMode: () => void;
+  onToggleImmersiveMode: () => void;
   onToggleClef: () => void;
   onToggleMetronome: () => void;
   onToggleTheme: () => void;
@@ -68,6 +78,52 @@ function KeyboardIcon() {
   );
 }
 
+function CircleArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M12 12 17.2 8.6" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <path d="m15.7 8.3 1.9.3-.8 1.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+function FullscreenIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PracticeModeIcon({ mode }: { mode: 'test' | 'play' }) {
+  if (mode === 'play') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M8.4 6.2v8.4a2.9 2.9 0 1 0 1.8 2.7V10l7.4-1.9v4.9a2.9 2.9 0 1 0 1.8 2.7V4.8L8.4 6.2Z"
+          fill="currentColor"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6.2 3.8h9.8l3.2 3.2v12.2a1.6 1.6 0 0 1-1.6 1.6H6.2a1.6 1.6 0 0 1-1.6-1.6V5.4a1.6 1.6 0 0 1 1.6-1.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M16 3.8v4h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="m9 15.9 5.9-5.9 1.9 1.9-5.9 5.9H9v-1.9Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -85,13 +141,6 @@ function SettingsIcon() {
 
 function ClefIcon({ clef }: { clef: 'treble' | 'bass' }) {
   return <span aria-hidden="true">{clef === 'bass' ? '𝄢' : '𝄞'}</span>;
-}
-
-function laneLabel(lane: ModeLane): string {
-  if (lane === 'ionian_aeolian_mixture') {
-    return 'Ionian + Aeolian';
-  }
-  return lane[0].toUpperCase() + lane.slice(1);
 }
 
 function rhythmLabelFromId(rhythmCellId: string | null): string {
@@ -125,7 +174,8 @@ function timingBucketLabel(bucket: EvaluationResult['timingBucket']): string {
 
 export function PracticeLayout({
   exerciseMode,
-  lane,
+  curriculumLabel,
+  practiceTrackingMode,
   phrase,
   clef,
   currentEventIndex,
@@ -138,6 +188,8 @@ export function PracticeLayout({
   deckMasteryPct,
   latestEvaluation,
   midiState,
+  inputMode,
+  qwertyOctaveShift,
   tempo,
   keyboardTargetNotes,
   scaleGuideLabelMode,
@@ -146,11 +198,16 @@ export function PracticeLayout({
   currentScaleGuideLabels,
   nextScalePitchClasses,
   nextScaleGuideLabels,
+  circleVisualizationMode,
+  immersiveMode,
   keyboardVisible,
   metronomeEnabled,
   onTempoChange,
   onToggleKeyboardVisible,
+  onTogglePracticeTrackingMode,
   onToggleScaleGuideLabelMode,
+  onToggleCircleVisualizationMode,
+  onToggleImmersiveMode,
   onToggleClef,
   onToggleMetronome,
   onToggleTheme,
@@ -164,6 +221,8 @@ export function PracticeLayout({
       .map((step) => step.roman)
       .join('-')
     : '—';
+  const progressionSubtitleLabel = phrase ? progressionSubtitle(phrase.progression.id) : null;
+  const tonicLabel = phrase?.tonic ?? '—';
 
   const currentRhythmLabel = currentEvent ? rhythmLabelFromId(currentEvent.rhythmCellId) : '—';
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
@@ -172,7 +231,9 @@ export function PracticeLayout({
   const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided Practice';
   const showPerformanceStats = exerciseMode !== 'improvisation';
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
-  const midiWarning = midiState.error ?? 'MIDI not detected';
+  const midiWarning = inputMode === 'qwerty'
+    ? 'QWERTY mode active · connect MIDI to switch'
+    : (midiState.error ?? 'MIDI not detected');
 
   useEffect(() => {
     setTempoInput(String(tempo));
@@ -199,15 +260,51 @@ export function PracticeLayout({
       <header className="practice-topbar">
         <div className="practice-heading">
           <p className="eyebrow">Modal Muscle Memory</p>
-          <strong>{laneLabel(lane)} {modeLabel}</strong>
+          <strong>{curriculumLabel} {modeLabel}</strong>
         </div>
 
         <div className="practice-controls">
-          {!midiState.ready ? (
+          {inputMode === 'qwerty' || !midiState.ready ? (
             <span className="midi-warning">{midiWarning}</span>
           ) : null}
 
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
+          <button
+            type="button"
+            className={`icon-button ${immersiveMode ? 'active' : ''}`.trim()}
+            aria-label={immersiveMode ? 'Exit immersive fullscreen mode' : 'Enter immersive fullscreen mode'}
+            title={immersiveMode ? 'Exit immersive mode' : 'Enter immersive mode'}
+            onClick={onToggleImmersiveMode}
+          >
+            <FullscreenIcon />
+          </button>
+
+          <button
+            type="button"
+            className={`icon-button circle-visual-toggle ${circleVisualizationMode === 'chord_arrows' ? 'active' : ''}`.trim()}
+            aria-label={circleVisualizationMode === 'chord_arrows'
+              ? 'Circle arrows active. Switch to interval markers'
+              : 'Circle intervals active. Switch to chord arrows'}
+            title={circleVisualizationMode === 'chord_arrows' ? 'Circle view: chord arrows' : 'Circle view: interval markers'}
+            onClick={onToggleCircleVisualizationMode}
+          >
+            <CircleArrowIcon />
+          </button>
+
+          <button
+            type="button"
+            className={`icon-button ${practiceTrackingMode === 'test' ? 'active' : ''}`.trim()}
+            aria-label={practiceTrackingMode === 'test'
+              ? 'Test mode active. Count attempts and mastery. Switch to play mode'
+              : 'Play mode active. Do not count attempts or mastery. Switch to test mode'}
+            onClick={onTogglePracticeTrackingMode}
+            title={practiceTrackingMode === 'test'
+              ? 'Test mode: count accuracy and progress'
+              : 'Play mode: free practice without counting progress'}
+          >
+            <PracticeModeIcon mode={practiceTrackingMode} />
+          </button>
 
           <button
             type="button"
@@ -293,41 +390,53 @@ export function PracticeLayout({
       </header>
 
       <section className="practice-hud-strip">
-        <article className="hud-exercise-card">
-          <p className="hud-caption">Current Exercise</p>
-          <h2>{progressionLabel}</h2>
-        </article>
+        <div className="hud-primary-strip">
+          <article className="hud-primary-cell hud-primary-exercise">
+            <p className="hud-caption">Current Exercise</p>
+            <div className="hud-primary-value hud-primary-exercise-value">
+              <span>{progressionLabel}</span>
+              {progressionSubtitleLabel ? <small>{progressionSubtitleLabel}</small> : null}
+            </div>
+          </article>
 
-        <div className={`hud-stat-grid ${showPerformanceStats ? '' : 'compact'}`.trim()}>
-          <div className="hud-stat">
-            <span>Lane</span>
-            <strong>{laneLabel(lane)}</strong>
-          </div>
-          <div className="hud-stat">
-            <span>Rhythm</span>
-            <strong>{currentRhythmLabel}</strong>
-          </div>
-          {showPerformanceStats ? (
-            <>
-              <div className="hud-stat">
-                <span>Timing</span>
-                <strong>{timingLabel}</strong>
-              </div>
-              <div className="hud-stat">
-                <span>Chord</span>
-                <strong className="hud-chord-mark">{chordLabel}</strong>
-              </div>
-              <div className="hud-stat">
-                <span>Streak</span>
-                <strong>{streak}</strong>
-              </div>
-              <div className="hud-stat">
-                <span>Mastery</span>
-                <strong>{Math.round(deckMasteryPct)}%</strong>
-              </div>
-            </>
+          <article className="hud-primary-cell hud-primary-key">
+            <p className="hud-caption">Current Key</p>
+            <div className="hud-primary-value">{tonicLabel}</div>
+          </article>
+
+          <article className="hud-primary-cell">
+            <p className="hud-caption">Content</p>
+            <div className="hud-primary-value hud-primary-meta">{curriculumLabel}</div>
+          </article>
+
+          {exerciseMode === 'guided' ? (
+            <article className="hud-primary-cell">
+              <p className="hud-caption">Rhythm</p>
+              <div className="hud-primary-value hud-primary-meta">{currentRhythmLabel}</div>
+            </article>
           ) : null}
         </div>
+
+        {showPerformanceStats ? (
+          <div className="hud-stat-grid">
+            <div className="hud-stat">
+              <span>Timing</span>
+              <strong>{timingLabel}</strong>
+            </div>
+            <div className="hud-stat">
+              <span>Chord</span>
+              <strong className="hud-chord-mark">{chordLabel}</strong>
+            </div>
+            <div className="hud-stat">
+              <span>Streak</span>
+              <strong>{streak}</strong>
+            </div>
+            <div className="hud-stat">
+              <span>Mastery</span>
+              <strong>{Math.round(deckMasteryPct)}%</strong>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <div className="practice-workstack">
@@ -346,29 +455,52 @@ export function PracticeLayout({
           <CircleOfFifths
             currentTonic={phrase?.tonic ?? null}
             currentChordRoot={currentToken?.pitchClasses[0] ?? null}
+            currentChordPitchClasses={currentToken?.pitchClasses ?? []}
+            visualizationMode={circleVisualizationMode}
           />
         </aside>
 
         {keyboardVisible ? (
           <div className="keyboard-lane">
-            {exerciseMode === 'improvisation' ? (
+            {inputMode === 'qwerty' ? (
+              <p className="keyboard-caption">
+                Computer keyboard mode. Z shifts down, X shifts up, and bass clef resets the board to A = C3.
+              </p>
+            ) : exerciseMode === 'improvisation' ? (
               <p className="keyboard-caption">
                 Solid dots mark chord tones. The lower row shows the current scale and the upper row shows the next scale. Use the 123/Eb button to swap interval numbers and note names.
               </p>
             ) : null}
-            <PianoView
-              mode={exerciseMode}
-              minMidi={minMidi}
-              maxMidi={maxMidi}
-              targetNotes={keyboardTargetNotes}
-              chordTonePitchClasses={chordTonePitchClasses}
-              currentScalePitchClasses={currentScalePitchClasses}
-              currentScaleGuideLabels={currentScaleGuideLabels}
-              nextScalePitchClasses={nextScalePitchClasses}
-              nextScaleGuideLabels={nextScaleGuideLabels}
-              activeNotes={activeNotes}
-              highlightColor={chordHighlightColor}
-            />
+            {inputMode === 'qwerty' ? (
+              <QwertyView
+                mode={exerciseMode}
+                clef={clef}
+                octaveShift={qwertyOctaveShift}
+                targetNotes={keyboardTargetNotes}
+                chordTonePitchClasses={chordTonePitchClasses}
+                currentScalePitchClasses={currentScalePitchClasses}
+                currentScaleGuideLabels={currentScaleGuideLabels}
+                nextScalePitchClasses={nextScalePitchClasses}
+                nextScaleGuideLabels={nextScaleGuideLabels}
+                activeNotes={activeNotes}
+                highlightColor={chordHighlightColor}
+              />
+            ) : (
+              <PianoView
+                mode={exerciseMode}
+                clef={clef}
+                minMidi={minMidi}
+                maxMidi={maxMidi}
+                targetNotes={keyboardTargetNotes}
+                chordTonePitchClasses={chordTonePitchClasses}
+                currentScalePitchClasses={currentScalePitchClasses}
+                currentScaleGuideLabels={currentScaleGuideLabels}
+                nextScalePitchClasses={nextScalePitchClasses}
+                nextScaleGuideLabels={nextScaleGuideLabels}
+                activeNotes={activeNotes}
+                highlightColor={chordHighlightColor}
+              />
+            )}
           </div>
         ) : null}
       </div>

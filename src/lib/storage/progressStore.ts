@@ -1,5 +1,15 @@
+import {
+  applyCurriculumPreset,
+  curriculumPresetIdForLane,
+  normalizeContentBlockIds,
+  normalizeCurriculumPresetId,
+  normalizeKeySetId,
+  normalizeProgressionFamilyTags,
+  normalizeScaleFamilyIds,
+  resolveLaneFromCurriculumPresetId,
+} from '../../content/curriculum';
 import { getPackForLane } from '../../content/packs';
-import type { ModeLane } from '../../types/music';
+import type { ModeLane, RhythmCellId, RhythmSelection } from '../../types/music';
 import type {
   AttemptRecord,
   ExerciseConfig,
@@ -11,6 +21,17 @@ import type {
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
 const SCHEMA_VERSION = 3;
+const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
+const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
+  'all',
+  'block_whole',
+  'quarters',
+  'charleston',
+  'anticipation_4and',
+  'offbeat_1and_3',
+  'syncopated_2and_4',
+];
+const SPECIFIC_RHYTHM_IDS: RhythmCellId[] = RHYTHM_FILTER_IDS.filter((id): id is RhythmCellId => id !== 'all');
 
 const ALL_LANES: ModeLane[] = [
   'ionian',
@@ -23,13 +44,46 @@ const ALL_LANES: ModeLane[] = [
 ];
 
 function defaultExerciseConfig(): ExerciseConfig {
-  return {
+  return applyCurriculumPreset({
     mode: 'guided',
+    curriculumPresetId: 'major_foundations',
     lane: 'ionian',
-    rhythm: 'all',
-    improvisationProgressionMode: 'random',
+    enabledContentBlockIds: [],
+    enabledScaleFamilyIds: [],
+    enabledProgressionFamilyTags: [],
+    keySet: 'max_2_accidentals',
+    rhythm: ['all'],
+    guidedFlowMode: 'targeting_improvement',
+    improvisationProgressionMode: 'chained',
+    improvisationAdvanceMode: 'immediate',
     chainMovement: 35,
-  };
+  }, 'major_foundations');
+}
+
+function normalizeImprovisationAdvanceMode(value: unknown): ExerciseConfig['improvisationAdvanceMode'] {
+  return value === 'footpedal_release' ? 'footpedal_release' : 'immediate';
+}
+
+function normalizeRhythmSelection(value: unknown): RhythmSelection {
+  if (!Array.isArray(value)) {
+    return ['all'];
+  }
+
+  const valid = [...new Set(value.filter((item): item is RhythmCellId | 'all' => RHYTHM_FILTER_IDS.includes(item as RhythmCellId | 'all')))];
+  if (valid.includes('all')) {
+    return ['all'];
+  }
+
+  const specifics = valid.filter((item): item is RhythmCellId => item !== 'all');
+  if (specifics.length === 0) {
+    return ['all'];
+  }
+
+  if (SPECIFIC_RHYTHM_IDS.every((id) => specifics.includes(id))) {
+    return ['all'];
+  }
+
+  return specifics;
 }
 
 function normalizeChainMovement(value: number | undefined): number {
@@ -45,6 +99,7 @@ function defaultSettings(): UserSettings {
     tempo: 78,
     metronomeEnabled: true,
     showKeyboardPanel: true,
+    practiceTrackingMode: 'test',
     scaleGuideLabelMode: 'degrees',
     staffClef: 'treble',
     registerMin: 48,
@@ -52,6 +107,10 @@ function defaultSettings(): UserSettings {
     scoringMode: 'lenient',
     midiInputId: null,
     enableReferencePlayback: true,
+    enableComputerKeyboardAudio: true,
+    keyboardFriendlyVoicings: true,
+    circleVisualizationMode: 'intervals',
+    immersiveMode: false,
   };
 }
 
@@ -120,6 +179,11 @@ function mergeUnlockState(
 
 function mergeProgress(raw: Partial<ProgressState>): ProgressState {
   const defaults = createDefaultProgressState();
+  const inferredPresetId = raw.exerciseConfig?.curriculumPresetId
+    ?? curriculumPresetIdForLane(raw.exerciseConfig?.lane ?? defaults.exerciseConfig.lane);
+  const curriculumPresetId = normalizeCurriculumPresetId(inferredPresetId);
+  const presetDefaults = applyCurriculumPreset(defaults.exerciseConfig, curriculumPresetId);
+  const resolvedLane = resolveLaneFromCurriculumPresetId(curriculumPresetId);
 
   const unlocks = ALL_LANES.reduce<Record<ModeLane, UnlockState>>((acc, lane) => {
     acc[lane] = mergeUnlockState(lane, raw.unlocksByLane?.[lane]);
@@ -129,8 +193,26 @@ function mergeProgress(raw: Partial<ProgressState>): ProgressState {
   return {
     schemaVersion: SCHEMA_VERSION,
     exerciseConfig: {
-      ...defaults.exerciseConfig,
+      ...presetDefaults,
       ...raw.exerciseConfig,
+      curriculumPresetId,
+      lane: resolvedLane,
+      enabledContentBlockIds: normalizeContentBlockIds(
+        raw.exerciseConfig?.enabledContentBlockIds,
+        presetDefaults.enabledContentBlockIds,
+      ),
+      enabledScaleFamilyIds: normalizeScaleFamilyIds(
+        raw.exerciseConfig?.enabledScaleFamilyIds,
+        presetDefaults.enabledScaleFamilyIds,
+      ),
+      enabledProgressionFamilyTags: normalizeProgressionFamilyTags(
+        raw.exerciseConfig?.enabledProgressionFamilyTags,
+        presetDefaults.enabledProgressionFamilyTags,
+      ),
+      keySet: normalizeKeySetId(raw.exerciseConfig?.keySet, presetDefaults.keySet),
+      rhythm: normalizeRhythmSelection(raw.exerciseConfig?.rhythm),
+      guidedFlowMode: raw.exerciseConfig?.guidedFlowMode ?? presetDefaults.guidedFlowMode,
+      improvisationAdvanceMode: normalizeImprovisationAdvanceMode(raw.exerciseConfig?.improvisationAdvanceMode),
       chainMovement: normalizeChainMovement(raw.exerciseConfig?.chainMovement),
     },
     settings: {
@@ -193,6 +275,34 @@ export function pushSession(
   progress: ProgressState,
   session: SessionRecord,
 ): ProgressState {
+  const previousSession = progress.sessionHistory[progress.sessionHistory.length - 1];
+  const canMerge = previousSession
+    && previousSession.mode === session.mode
+    && previousSession.curriculumPresetId === session.curriculumPresetId
+    && (new Date(session.startedAt).getTime() - new Date(previousSession.endedAt).getTime()) <= SESSION_MERGE_GAP_MS;
+
+  if (canMerge) {
+    const previousPhraseCount = Math.max(1, previousSession.phraseIds.length);
+    const nextPhraseCount = Math.max(1, session.phraseIds.length);
+    const combinedPhraseCount = previousPhraseCount + nextPhraseCount;
+    const combinedSession: SessionRecord = {
+      ...previousSession,
+      lane: session.lane,
+      endedAt: session.endedAt,
+      phraseIds: [...previousSession.phraseIds, ...session.phraseIds],
+      accuracy: ((previousSession.accuracy * previousPhraseCount) + (session.accuracy * nextPhraseCount)) / combinedPhraseCount,
+      medianTransitionLatencyMs:
+        ((previousSession.medianTransitionLatencyMs * previousPhraseCount) + (session.medianTransitionLatencyMs * nextPhraseCount))
+        / combinedPhraseCount,
+    };
+
+    return {
+      ...progress,
+      sessionHistory: [...progress.sessionHistory.slice(0, -1), combinedSession].slice(-120),
+      lastSessionAt: combinedSession.endedAt,
+    };
+  }
+
   return {
     ...progress,
     sessionHistory: [...progress.sessionHistory, session].slice(-120),

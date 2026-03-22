@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Midi } from 'tonal';
 import { Accidental, Formatter, Renderer, Stave, StaveNote, StaveTie, Voice } from 'vexflow';
 import { getScaleOption } from '../content/scales';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
+import { octaveForSpellingAtMidi } from '../lib/theory/noteUtils';
 import { resolveRomanToChord } from '../lib/theory/roman';
 import type { ExerciseMode, Phrase } from '../types/music';
 
@@ -64,14 +64,14 @@ function durationsForNotation(durationBeats: number): number[] {
   return [durationBeats];
 }
 
-function midiToVexKey(midi: number): { key: string; accidental: string | null } {
-  const note = Midi.midiToNoteName(midi, { sharps: true }) ?? 'C4';
-  const match = note.match(/^([A-G])([#b]?)(\d)$/);
+function spelledMidiToVexKey(noteSpelling: string, midi: number): { key: string; accidental: string | null } {
+  const match = noteSpelling.match(/^([A-G])([#b]*)$/);
   if (!match) {
     return { key: 'c/4', accidental: null };
   }
 
-  const [, letter, accidental, octave] = match;
+  const [, letter, accidental] = match;
+  const octave = octaveForSpellingAtMidi(noteSpelling, midi);
   return {
     key: `${letter.toLowerCase()}/${octave}`,
     accidental: accidental || null,
@@ -187,8 +187,12 @@ export function NotationStrip({
         const token = phrase.tokensById[event.chordTokenId];
         const keys = token.midiVoicing
           .slice(0, 4)
-          .sort((a, b) => a - b)
-          .map((note) => midiToVexKey(note));
+          .map((note, index) => ({
+            midi: note,
+            spelling: token.spelledVoicing[index] ?? token.pitchClasses[index] ?? 'C',
+          }))
+          .sort((a, b) => a.midi - b.midi)
+          .map((entry) => spelledMidiToVexKey(entry.spelling, entry.midi));
 
         const eventIndex = phrase.events.findIndex((candidate) => candidate.id === event.id);
         const isCompleted = completedEventIds.has(event.id);

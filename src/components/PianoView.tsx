@@ -5,6 +5,7 @@ import { midiToPitchClass } from '../lib/theory/noteUtils';
 
 interface PianoViewProps {
   mode: ExerciseMode;
+  clef: 'treble' | 'bass';
   minMidi: number;
   maxMidi: number;
   targetNotes: number[];
@@ -25,6 +26,11 @@ interface RenderKey {
 
 interface RenderBlackKey extends RenderKey {
   left: number;
+}
+
+interface GuideMarker {
+  midi: number;
+  label: string;
 }
 
 type MarkerKind = 'chord' | null;
@@ -69,9 +75,10 @@ function splitGuideLabel(label: string): {
 
 function ScaleGuideLabel({ label }: { label: string }) {
   const parts = splitGuideLabel(label);
+  const hasAccidental = Boolean(parts.prefixAccidental || parts.suffixAccidental);
 
   return (
-    <span className="scale-guide-label">
+    <span className={`scale-guide-label ${hasAccidental ? 'has-accidental' : ''}`.trim()}>
       {parts.prefixAccidental ? (
         <span className="scale-guide-accidental prefix">{parts.prefixAccidental}</span>
       ) : null}
@@ -83,8 +90,76 @@ function ScaleGuideLabel({ label }: { label: string }) {
   );
 }
 
+function orderedGuideEntries(guideLabels: Record<string, string>): Array<[string, string]> {
+  return Object.entries(guideLabels);
+}
+
+function findNearestMidiAtOrAbove(targetMidi: number, pitchClass: string, minMidi: number, maxMidi: number): number | null {
+  for (let midi = Math.max(minMidi, targetMidi); midi <= maxMidi; midi += 1) {
+    if (midiToPitchClass(midi) === pitchClass) {
+      return midi;
+    }
+  }
+  return null;
+}
+
+function findNearestMidiAtOrBelow(targetMidi: number, pitchClass: string, minMidi: number, maxMidi: number): number | null {
+  for (let midi = Math.min(maxMidi, targetMidi); midi >= minMidi; midi -= 1) {
+    if (midiToPitchClass(midi) === pitchClass) {
+      return midi;
+    }
+  }
+  return null;
+}
+
+function buildGuideMarkers(
+  guideLabels: Record<string, string>,
+  clef: 'treble' | 'bass',
+  minMidi: number,
+  maxMidi: number,
+  targetNotes: number[],
+): GuideMarker[] {
+  const entries = orderedGuideEntries(guideLabels);
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const anchorPitchClass = entries[0][0];
+  const chordLow = targetNotes.length > 0 ? Math.min(...targetNotes) : 60;
+  const chordHigh = targetNotes.length > 0 ? Math.max(...targetNotes) : 60;
+  const anchorSearchStart = clef === 'bass' ? chordHigh + 12 : chordLow - 12;
+  const anchorMidi = clef === 'bass'
+    ? findNearestMidiAtOrAbove(anchorSearchStart, anchorPitchClass, minMidi, maxMidi)
+    : findNearestMidiAtOrBelow(anchorSearchStart, anchorPitchClass, minMidi, maxMidi);
+  const fallbackAnchorMidi = clef === 'bass'
+    ? findNearestMidiAtOrAbove(minMidi, anchorPitchClass, minMidi, maxMidi)
+    : findNearestMidiAtOrBelow(maxMidi, anchorPitchClass, minMidi, maxMidi);
+  const startMidi = anchorMidi ?? fallbackAnchorMidi;
+
+  if (startMidi === null) {
+    return [];
+  }
+
+  const markers: GuideMarker[] = [{ midi: startMidi, label: entries[0][1] }];
+  let previousMidi = startMidi;
+
+  for (let index = 1; index < entries.length; index += 1) {
+    const [pitchClass, label] = entries[index];
+    const nextMidi = findNearestMidiAtOrAbove(previousMidi + 1, pitchClass, minMidi, maxMidi);
+    if (nextMidi === null) {
+      break;
+    }
+
+    markers.push({ midi: nextMidi, label });
+    previousMidi = nextMidi;
+  }
+
+  return markers;
+}
+
 export function PianoView({
   mode,
+  clef,
   minMidi,
   maxMidi,
   targetNotes,
@@ -146,6 +221,15 @@ export function PianoView({
 
   const guideKeys = useMemo(() => [...whiteKeys, ...blackKeys].sort((a, b) => a.midi - b.midi), [whiteKeys, blackKeys]);
 
+  const nextGuideMarkers = useMemo(
+    () => buildGuideMarkers(nextScaleGuideLabels, clef, minMidi, maxMidi, targetNotes),
+    [clef, maxMidi, minMidi, nextScaleGuideLabels, targetNotes],
+  );
+  const currentGuideMarkers = useMemo(
+    () => buildGuideMarkers(currentScaleGuideLabels, clef, minMidi, maxMidi, targetNotes),
+    [clef, currentScaleGuideLabels, maxMidi, minMidi, targetNotes],
+  );
+
   function markerKindForMidi(midi: number): MarkerKind {
     if (mode === 'guided') {
       return targetSet.has(midi) ? 'chord' : null;
@@ -186,37 +270,37 @@ export function PianoView({
           {mode === 'improvisation' ? (
             <div className="scale-guide" aria-hidden="true">
               <div className="scale-guide-row next">
-                {guideKeys.map((key) => {
-                  const label = nextScaleGuideLabels[midiToPitchClass(key.midi)];
-                  if (!label) {
+                {nextGuideMarkers.map((marker) => {
+                  const key = guideKeys.find((candidate) => candidate.midi === marker.midi);
+                  if (!key) {
                     return null;
                   }
 
                   return (
                     <span
-                      key={`next:${key.midi}`}
+                      key={`next:${marker.midi}`}
                       className="scale-guide-marker next"
                       style={{ left: `${key.centerX}px` }}
                     >
-                      <ScaleGuideLabel label={label} />
+                      <ScaleGuideLabel label={marker.label} />
                     </span>
                   );
                 })}
               </div>
               <div className="scale-guide-row current">
-                {guideKeys.map((key) => {
-                  const label = currentScaleGuideLabels[midiToPitchClass(key.midi)];
-                  if (!label) {
+                {currentGuideMarkers.map((marker) => {
+                  const key = guideKeys.find((candidate) => candidate.midi === marker.midi);
+                  if (!key) {
                     return null;
                   }
 
                   return (
                     <span
-                      key={`current:${key.midi}`}
+                      key={`current:${marker.midi}`}
                       className="scale-guide-marker current"
                       style={{ left: `${key.centerX}px` }}
                     >
-                      <ScaleGuideLabel label={label} />
+                      <ScaleGuideLabel label={marker.label} />
                     </span>
                   );
                 })}

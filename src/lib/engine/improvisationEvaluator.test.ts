@@ -53,4 +53,18 @@ describe('evaluateImprovisationAttempt', () => {
     expect(result.success).toBe(false);
     expect(result.errors.some((error) => error.code === 'outside_allowed_scale')).toBe(true);
   });
+
+  it('passes when the target voicing is present alongside other allowed scale notes', () => {
+    const result = evaluateImprovisationAttempt({
+      targetToken: token,
+      playedNotes: [...token.midiVoicing, 60],
+      allowedPitchClasses: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
+      expectedTimeMs: 1000,
+      submittedAtMs: 1080,
+      scoringMode: 'lenient',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
 });

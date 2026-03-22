@@ -7,8 +7,29 @@ export type ModeLane =
   | 'lydian'
   | 'phrygian';
 
+export type CurriculumPresetId =
+  | 'major_foundations'
+  | 'minor_foundations'
+  | 'mixture_foundations'
+  | 'modal_colors'
+  | 'functional_minor_extensions'
+  | 'dominant_and_symmetric'
+  | 'full_library';
+
+export type ContentBlockId =
+  | 'major_foundations'
+  | 'minor_foundations'
+  | 'borrowed_color'
+  | 'modal_colors'
+  | 'dominant_color'
+  | 'functional_minor_extensions'
+  | 'symmetric_color';
+
 export type ExerciseMode = 'guided' | 'improvisation';
-export type ImprovisationProgressionMode = 'random' | 'chained';
+export type GuidedFlowMode = 'random' | 'targeting_improvement' | 'musical_chaining';
+export type ImprovisationProgressionMode = 'random' | 'targeting_improvement' | 'chained';
+export type ImprovisationAdvanceMode = 'immediate' | 'footpedal_release';
+export type CircleVisualizationMode = 'intervals' | 'chord_arrows';
 
 export type VoicingFamily =
   | 'triad_root'
@@ -30,9 +51,27 @@ export type RhythmCellId =
   | 'offbeat_1and_3'
   | 'syncopated_2and_4';
 
-export type RhythmSelection = RhythmCellId | 'all';
+export type RhythmFilterId = RhythmCellId | 'all';
+export type RhythmSelection = RhythmFilterId[];
 export type BassPolicy = 'exact' | 'allow_inversion' | 'any_allowed';
 export type TopNotePolicy = 'exact' | 'preferred' | 'any_allowed';
+
+export type KeySetId =
+  | 'c_only'
+  | 'max_1_accidental'
+  | 'max_2_accidentals'
+  | 'max_3_accidentals'
+  | 'max_4_accidentals'
+  | 'max_5_accidentals'
+  | 'all_keys';
+
+export type ScaleFamilyId =
+  | 'diatonic_modes'
+  | 'pentatonic_blues'
+  | 'harmonic_minor_family'
+  | 'melodic_minor_family'
+  | 'dominant_altered_family'
+  | 'symmetric_family';
 
 export type ScaleId =
   | 'ionian'
@@ -43,9 +82,23 @@ export type ScaleId =
   | 'aeolian'
   | 'locrian'
   | 'major_pentatonic'
-  | 'minor_pentatonic';
+  | 'minor_pentatonic'
+  | 'major_blues'
+  | 'minor_blues'
+  | 'harmonic_minor'
+  | 'phrygian_dominant'
+  | 'melodic_minor'
+  | 'dorian_b2'
+  | 'lydian_augmented'
+  | 'lydian_dominant'
+  | 'mixolydian_b6'
+  | 'locrian_natural_2'
+  | 'altered'
+  | 'whole_tone'
+  | 'half_whole_diminished'
+  | 'whole_half_diminished';
 
-export type ScaleCategory = 'mode' | 'pentatonic';
+export type ScaleCategory = 'mode' | 'pentatonic' | 'blues' | 'minor_system' | 'dominant_color' | 'symmetric';
 export type StyleTag = 'functional_jazz' | 'modal_jazz' | 'borrowed_color' | 'contemporary_modal';
 export type ProgressionFamilyTag =
   | 'scalar'
@@ -55,7 +108,11 @@ export type ProgressionFamilyTag =
   | 'cadence'
   | 'minor_loop'
   | 'borrowed'
-  | 'backdoor';
+  | 'backdoor'
+  | 'modal_vamp'
+  | 'secondary_dominant'
+  | 'dominant_cycle'
+  | 'symmetric_color';
 
 export type HarmonicFunctionTag = 'tonic' | 'predominant' | 'dominant' | 'color' | 'passing';
 
@@ -63,6 +120,7 @@ export interface ScaleOption {
   id: ScaleId;
   label: string;
   category: ScaleCategory;
+  familyId: ScaleFamilyId;
   intervalFormula: string[];
   qualityTags: string[];
 }
@@ -111,6 +169,7 @@ export interface ChordToken {
   pitchClasses: string[];
   requiredPitchClasses: string[];
   optionalPitchClasses: string[];
+  spelledVoicing: string[];
   voicingFamily: VoicingFamily;
   inversion: number | null;
   bassPolicy: BassPolicy;

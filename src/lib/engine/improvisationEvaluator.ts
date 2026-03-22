@@ -10,14 +10,9 @@ function unique(items: string[]): string[] {
   return [...new Set(items)];
 }
 
-function sameNotes(a: number[], b: number[]): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  const sortedA = [...a].sort((left, right) => left - right);
-  const sortedB = [...b].sort((left, right) => left - right);
-  return sortedA.every((note, index) => note === sortedB[index]);
+function containsAllNotes(playedNotes: number[], requiredNotes: number[]): boolean {
+  const played = new Set(playedNotes);
+  return requiredNotes.every((note) => played.has(note));
 }
 
 function timingBucket(deltaMs: number, earlyMs: number, lateMs: number): EvaluationResult['timingBucket'] {
@@ -38,7 +33,7 @@ export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): 
   const playedPitchClasses = unique(input.playedNotes.map((note) => midiToPitchClass(note)));
   const required = unique(input.targetToken.requiredPitchClasses);
   const allowed = new Set(unique([...required, ...input.allowedPitchClasses]));
-  const exactTargetMatch = sameNotes(input.playedNotes, input.targetToken.midiVoicing);
+  const containsTargetVoicing = containsAllNotes(input.playedNotes, input.targetToken.midiVoicing);
 
   const matchedRequired = required.filter((pitchClass) => playedPitchClasses.includes(pitchClass));
   const missingRequired = required.filter((pitchClass) => !playedPitchClasses.includes(pitchClass));
@@ -58,10 +53,10 @@ export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): 
       message: `Missing required tones: ${missingRequired.join(', ')}`,
     });
   }
-  if (!exactTargetMatch) {
+  if (!containsTargetVoicing) {
     errors.push({
       code: 'wrong_target_notes',
-      message: 'Play the exact notated voicing to advance.',
+      message: 'Include the exact notated voicing to advance.',
     });
   }
   if (outsideAllowed.length > 0) {
@@ -77,7 +72,7 @@ export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): 
   const accuracy = Math.max(0, Math.min(1, requiredRatio - outsidePenalty - timingPenalty));
 
   return {
-    success: missingRequired.length === 0 && exactTargetMatch && outsideAllowed.length === 0 && bucket === 'on_time',
+    success: missingRequired.length === 0 && containsTargetVoicing && outsideAllowed.length === 0 && bucket === 'on_time',
     timingDeltaMs: deltaMs,
     timingBucket: bucket,
     accuracy,

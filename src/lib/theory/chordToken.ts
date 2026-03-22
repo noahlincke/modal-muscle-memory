@@ -1,6 +1,6 @@
 import { Chord } from 'tonal';
 import type { ChordToken, ModeLane, VoicingFamily } from '../../types/music';
-import { normalizePitchClass, pitchClassToSemitone, semitoneToPitchClass } from './noteUtils';
+import { normalizePitchClass, spellIntervalAbove } from './noteUtils';
 import { resolveRomanToChord } from './roman';
 import { solveVoiceLeading } from './voiceLeading';
 
@@ -21,36 +21,50 @@ interface ChordToneSet {
   seventh?: string;
 }
 
-function qualitySemitones(quality: string): number[] {
+function deriveChordTones(rootSpelling: string, quality: string): ChordToneSet {
   switch (quality) {
     case 'maj7':
-      return [0, 4, 7, 11];
+      return {
+        root: rootSpelling,
+        third: spellIntervalAbove(rootSpelling, 3, 4),
+        fifth: spellIntervalAbove(rootSpelling, 5, 7),
+        seventh: spellIntervalAbove(rootSpelling, 7, 11),
+      };
     case 'm7':
-      return [0, 3, 7, 10];
+      return {
+        root: rootSpelling,
+        third: spellIntervalAbove(rootSpelling, 3, 3),
+        fifth: spellIntervalAbove(rootSpelling, 5, 7),
+        seventh: spellIntervalAbove(rootSpelling, 7, 10),
+      };
     case '7':
-      return [0, 4, 7, 10];
+      return {
+        root: rootSpelling,
+        third: spellIntervalAbove(rootSpelling, 3, 4),
+        fifth: spellIntervalAbove(rootSpelling, 5, 7),
+        seventh: spellIntervalAbove(rootSpelling, 7, 10),
+      };
     case 'm7b5':
-      return [0, 3, 6, 10];
+      return {
+        root: rootSpelling,
+        third: spellIntervalAbove(rootSpelling, 3, 3),
+        fifth: spellIntervalAbove(rootSpelling, 5, 6),
+        seventh: spellIntervalAbove(rootSpelling, 7, 10),
+      };
     case 'min':
-      return [0, 3, 7];
+      return {
+        root: rootSpelling,
+        third: spellIntervalAbove(rootSpelling, 3, 3),
+        fifth: spellIntervalAbove(rootSpelling, 5, 7),
+      };
     case 'maj':
     default:
-      return [0, 4, 7];
+      return {
+        root: rootSpelling,
+        third: spellIntervalAbove(rootSpelling, 3, 4),
+        fifth: spellIntervalAbove(rootSpelling, 5, 7),
+      };
   }
-}
-
-function deriveChordTones(rootPitchClass: string, quality: string): ChordToneSet {
-  const rootSemitone = pitchClassToSemitone(rootPitchClass);
-  const [root, third, fifth, seventh] = qualitySemitones(quality).map((interval) =>
-    semitoneToPitchClass(rootSemitone + interval),
-  );
-
-  return {
-    root,
-    third,
-    fifth,
-    seventh,
-  };
 }
 
 function unique(items: string[]): string[] {
@@ -131,14 +145,15 @@ export function buildChordToken({
   maxVoiceMotionSemitones,
 }: BuildChordTokenInput): ChordToken {
   const resolved = resolveRomanToChord(tonic, roman);
-  const tones = deriveChordTones(resolved.rootPitchClass, resolved.quality);
+  const tones = deriveChordTones(resolved.rootSpelling, resolved.quality);
   const voicing = requiredForVoicing(voicingFamily, tones);
 
   const tonalDetected = Chord.get(resolved.symbol).notes.map(normalizePitchClass);
-  const pitchClasses = tonalDetected.length > 0 ? tonalDetected : voicing.required;
+  const pitchClasses = tonalDetected.length > 0 ? tonalDetected : voicing.required.map(normalizePitchClass);
+  const orderedPitchClasses = voicing.ordered.map(normalizePitchClass);
 
   const midiVoicing = solveVoiceLeading({
-    orderedPitchClasses: voicing.ordered,
+    orderedPitchClasses,
     midiRange,
     prevVoicing,
     maxMotionSemitones: maxVoiceMotionSemitones,
@@ -154,8 +169,9 @@ export function buildChordToken({
     symbol: resolved.symbol,
     quality: resolved.quality,
     pitchClasses: unique(pitchClasses),
-    requiredPitchClasses: unique(voicing.required),
-    optionalPitchClasses: unique(voicing.optional),
+    requiredPitchClasses: unique(voicing.required.map(normalizePitchClass)),
+    optionalPitchClasses: unique(voicing.optional.map(normalizePitchClass)),
+    spelledVoicing: voicing.ordered,
     voicingFamily,
     inversion,
     bassPolicy: voicingFamily === 'inversion_1' ? 'exact' : 'allow_inversion',
