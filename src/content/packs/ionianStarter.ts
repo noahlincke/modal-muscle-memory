@@ -87,7 +87,7 @@ export const ionianStarterPack: ContentPack = {
         borrowedChordCount: 0,
         alterationComplexity: 0,
       },
-      chainTargets: ['ionian_cadence_return'],
+      chainTargets: ['ionian_cadence_return', 'ionian_predominant', 'ionian_scalar_up'],
     },
     {
       id: 'ionian_predominant',
@@ -114,7 +114,7 @@ export const ionianStarterPack: ContentPack = {
         borrowedChordCount: 0,
         alterationComplexity: 0,
       },
-      chainTargets: ['ionian_cadence_return'],
+      chainTargets: ['ionian_cadence_return', 'ionian_turnaround', 'ionian_circle_motion'],
     },
     {
       id: 'ionian_circle_motion',
@@ -141,7 +141,7 @@ export const ionianStarterPack: ContentPack = {
         borrowedChordCount: 0,
         alterationComplexity: 0,
       },
-      chainTargets: ['ionian_cadence_return'],
+      chainTargets: ['ionian_cadence_return', 'ionian_turnaround', 'ionian_scalar_down'],
     },
     {
       id: 'ionian_cadence_return',
@@ -168,7 +168,7 @@ export const ionianStarterPack: ContentPack = {
         borrowedChordCount: 0,
         alterationComplexity: 0,
       },
-      chainTargets: ['ionian_turnaround'],
+      chainTargets: ['ionian_turnaround', 'ionian_circle_motion', 'ionian_scalar_down'],
     },
   ],
 };

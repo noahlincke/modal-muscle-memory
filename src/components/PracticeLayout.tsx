@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { keySignatureForRoot } from '../content/keys';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { progressionSubtitle } from '../lib/progressionLabels';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
@@ -26,6 +27,7 @@ interface PracticeLayoutProps {
   latestEvaluation: EvaluationResult | null;
   midiState: MidiConnectionState;
   inputMode: 'midi' | 'qwerty';
+  canStepKey: boolean;
   qwertyOctaveShift: number;
   tempo: number;
   keyboardTargetNotes: number[];
@@ -46,6 +48,8 @@ interface PracticeLayoutProps {
   onToggleCircleVisualizationMode: () => void;
   onToggleImmersiveMode: () => void;
   onToggleClef: () => void;
+  onStepKeyBackward: () => void;
+  onStepKeyForward: () => void;
   onToggleMetronome: () => void;
   onToggleTheme: () => void;
   onPlayReference: () => void;
@@ -169,6 +173,55 @@ function ClefIcon({ clef }: { clef: 'treble' | 'bass' }) {
   return <span aria-hidden="true">{clef === 'bass' ? '𝄢' : '𝄞'}</span>;
 }
 
+const TREBLE_SHARP_Y_POSITIONS = [16, 25, 13, 22, 31, 19, 28] as const;
+const TREBLE_FLAT_Y_POSITIONS = [28, 19, 31, 22, 34, 25, 37] as const;
+const KEY_SIGNATURE_VIEWBOX_WIDTH = 56;
+
+function KeySignatureStaff({ tonic }: { tonic: string | null }) {
+  const signature = tonic ? keySignatureForRoot(tonic) : null;
+  if (!signature) {
+    return null;
+  }
+
+  const symbol = signature.symbol === 'flat' ? '♭' : '♯';
+  const label = signature.count === 0
+    ? 'no accidentals'
+    : `${signature.count} ${signature.symbol}${signature.count === 1 ? '' : 's'}`;
+  const yPositions = signature.symbol === 'flat' ? TREBLE_FLAT_Y_POSITIONS : TREBLE_SHARP_Y_POSITIONS;
+  const lineStartX = 4;
+  const lineEndX = KEY_SIGNATURE_VIEWBOX_WIDTH - 4;
+  const accidentalStepX = 6;
+  const accidentalSpan = signature.count > 1 ? (signature.count - 1) * accidentalStepX : 0;
+  const accidentalStartX = (KEY_SIGNATURE_VIEWBOX_WIDTH / 2) - (accidentalSpan / 2);
+
+  return (
+    <span className="key-signature-staff" role="img" aria-label={`Treble key signature: ${label}`}>
+      <svg className="key-signature-svg" viewBox={`0 0 ${KEY_SIGNATURE_VIEWBOX_WIDTH} 48`} aria-hidden="true" focusable="false">
+        {[16, 22, 28, 34, 40].map((y) => (
+          <line
+            key={`staff-line-${y}`}
+            className="key-signature-line"
+            x1={lineStartX}
+            y1={y}
+            x2={lineEndX}
+            y2={y}
+          />
+        ))}
+        {Array.from({ length: signature.count }, (_, index) => (
+          <text
+            key={`key-signature-${signature.symbol}-${index}`}
+            x={accidentalStartX + (index * accidentalStepX)}
+            y={yPositions[index]}
+            className={`key-signature-glyph ${signature.symbol}`.trim()}
+          >
+            {symbol}
+          </text>
+        ))}
+      </svg>
+    </span>
+  );
+}
+
 function timingBucketLabel(bucket: EvaluationResult['timingBucket']): string {
   if (bucket === 'on_time') {
     return 'On Time';
@@ -196,6 +249,7 @@ export function PracticeLayout({
   latestEvaluation,
   midiState,
   inputMode,
+  canStepKey,
   qwertyOctaveShift,
   tempo,
   keyboardTargetNotes,
@@ -216,6 +270,8 @@ export function PracticeLayout({
   onToggleCircleVisualizationMode,
   onToggleImmersiveMode,
   onToggleClef,
+  onStepKeyBackward,
+  onStepKeyForward,
   onToggleMetronome,
   onToggleTheme,
   onPlayReference,
@@ -413,7 +469,30 @@ export function PracticeLayout({
 
           <article className="hud-primary-cell hud-primary-key">
             <p className="hud-caption">Current Key</p>
-            <div className="hud-primary-value">{tonicLabel}</div>
+            <div className="hud-primary-key-row">
+              <button
+                type="button"
+                className="hud-key-step"
+                onClick={onStepKeyBackward}
+                disabled={!canStepKey}
+                aria-label="Previous available key on the circle of fifths"
+              >
+                ←
+              </button>
+              <div className="hud-primary-value hud-primary-key-value">
+                <span>{tonicLabel}</span>
+                <KeySignatureStaff tonic={phrase?.tonic ?? null} />
+              </div>
+              <button
+                type="button"
+                className="hud-key-step"
+                onClick={onStepKeyForward}
+                disabled={!canStepKey}
+                aria-label="Next available key on the circle of fifths"
+              >
+                →
+              </button>
+            </div>
           </article>
 
           <article className="hud-primary-cell">

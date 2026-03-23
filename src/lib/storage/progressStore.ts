@@ -25,11 +25,19 @@ const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
   'block_whole',
+  'halves',
   'quarters',
   'charleston',
+  'tresillo_332',
+  'backbeat_2_4',
+  'push_2and_hold',
   'anticipation_4and',
+  'push_4and_hold',
+  'hold_from_3',
   'offbeat_1and_3',
   'syncopated_2and_4',
+  'late_pickup_4',
+  'floating_2and',
 ];
 const SPECIFIC_RHYTHM_IDS: RhythmCellId[] = RHYTHM_FILTER_IDS.filter((id): id is RhythmCellId => id !== 'all');
 
@@ -124,7 +132,7 @@ function createUnlockState(
     roots,
     modes: [lane],
     voicings,
-    rhythms: ['block_whole', 'quarters', 'charleston'],
+    rhythms: [...SPECIFIC_RHYTHM_IDS],
     borrowedDepth: lane === 'ionian_aeolian_mixture' ? 1 : 0,
     unlockedPackIds: pack ? [pack.id] : [],
   };

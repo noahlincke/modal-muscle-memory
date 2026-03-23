@@ -1,5 +1,5 @@
 import { getContentBlock } from '../../content/curriculum';
-import { rootsForKeySet } from '../../content/keys';
+import { circleDistance, rootsForKeySet } from '../../content/keys';
 import { PROGRESSION_LIBRARY } from '../../content/progressions';
 import { RHYTHM_CELLS } from '../../content/rhythmCells';
 import { scaleFamilyForScaleId } from '../../content/scales';
@@ -24,6 +24,9 @@ interface GeneratePhraseInput {
   random?: () => number;
   midiRange?: { min: number; max: number };
   focusOverride?: PhraseFocusType;
+  tonicOverride?: string;
+  progressionOverrideId?: string;
+  voicingFamilyOverride?: VoicingFamily;
 }
 
 function choose<T>(items: T[], random: () => number): T {
@@ -171,8 +174,195 @@ interface ImprovementTarget {
   voicingFamily: VoicingFamily;
 }
 
+const RECENT_PROGRESSION_WINDOW = 8;
+const LOOP_ESCAPE_WINDOW = 6;
+const LOOP_ESCAPE_UNIQUE_MAX = 3;
+
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
 function progressionLookup(progressions: ProgressionDefinition[]): Map<string, ProgressionDefinition> {
   return new Map(progressions.map((progression) => [progression.id, progression]));
+}
+
+function recentProgressionIds(
+  progressions: ProgressionDefinition[],
+  progress: ProgressState,
+  previousPhrase: Phrase | null | undefined,
+): string[] {
+  const allowedIds = new Set(progressions.map((progression) => progression.id));
+  const phraseIds = progress.sessionHistory
+    .flatMap((session) => session.phraseIds)
+    .slice(-(RECENT_PROGRESSION_WINDOW + LOOP_ESCAPE_WINDOW));
+  const recentIds = phraseIds.reduce<string[]>((acc, phraseId) => {
+    const progressionId = parsePhraseIdMetadata(phraseId)?.progressionId;
+    if (progressionId && allowedIds.has(progressionId)) {
+      acc.push(progressionId);
+    }
+    return acc;
+  }, []);
+
+  if (previousPhrase && allowedIds.has(previousPhrase.progressionId)) {
+    recentIds.push(previousPhrase.progressionId);
+  }
+
+  return recentIds.slice(-(RECENT_PROGRESSION_WINDOW + LOOP_ESCAPE_WINDOW));
+}
+
+function trappedLoopSet(
+  progressions: ProgressionDefinition[],
+  recentIds: string[],
+): Set<string> | null {
+  const recentWindow = recentIds.slice(-LOOP_ESCAPE_WINDOW);
+  if (recentWindow.length < LOOP_ESCAPE_WINDOW) {
+    return null;
+  }
+
+  const uniqueRecent = unique(recentWindow);
+  if (uniqueRecent.length > LOOP_ESCAPE_UNIQUE_MAX || uniqueRecent.length >= progressions.length) {
+    return null;
+  }
+
+  const trapped = new Set(uniqueRecent);
+  const hasEscapeOption = progressions.some((progression) => !trapped.has(progression.id));
+  return hasEscapeOption ? trapped : null;
+}
+
+function chainedSelectionPool(
+  progressions: ProgressionDefinition[],
+  previousPhrase: Phrase | null | undefined,
+): ProgressionDefinition[] {
+  if (!previousPhrase) {
+    return progressions;
+  }
+
+  const previousProgression = progressions.find((progression) => progression.id === previousPhrase.progressionId);
+  if (!previousProgression) {
+    return progressions;
+  }
+
+  const byId = progressionLookup(progressions);
+  const directTargets = previousProgression.chainTargets
+    .map((targetId) => byId.get(targetId))
+    .filter((progression): progression is ProgressionDefinition => Boolean(progression));
+
+  return unique([previousProgression, ...directTargets]);
+}
+
+function pickProgressionWithNovelty(
+  selectionPool: ProgressionDefinition[],
+  progressions: ProgressionDefinition[],
+  preferredProgression: ProgressionDefinition,
+  recentIds: string[],
+  chainMovement: number,
+  random: () => number,
+): ProgressionDefinition {
+  const movement = clampUnit(chainMovement / 100);
+  const trapped = trappedLoopSet(progressions, recentIds);
+  const recentWindow = recentIds.slice(-RECENT_PROGRESSION_WINDOW);
+  const immediateLastId = recentIds[recentIds.length - 1] ?? null;
+
+  if (trapped && movement >= 0.45) {
+    const escapeOptions = progressions.filter((progression) => !trapped.has(progression.id));
+    if (escapeOptions.length > 0) {
+      return chooseWeighted(
+        escapeOptions.map((progression) => ({
+          value: progression,
+          weight: progression.id === preferredProgression.id
+            ? 2.8 + movement
+            : 1 + (movement * 1.4),
+        })),
+        random,
+      );
+    }
+  }
+
+  return chooseWeighted(
+    selectionPool.map((progression) => {
+      let weight = progression.id === preferredProgression.id
+        ? 4.2 - (movement * 2.1)
+        : 0.9 + (movement * 0.45);
+
+      const recencyScore = recentWindow
+        .slice()
+        .reverse()
+        .reduce((score, recentId, index) => (
+          recentId === progression.id
+            ? score + (1 / (index + 1))
+            : score
+        ), 0);
+
+      if (recencyScore > 0) {
+        weight *= 1 - (movement * Math.min(0.8, recencyScore * 0.32));
+      }
+
+      if (movement >= 0.25 && immediateLastId === progression.id && progressions.length > 1) {
+        weight *= 1 - (movement * 0.72);
+      }
+
+      if (trapped) {
+        if (trapped.has(progression.id)) {
+          weight *= 1 - (movement * 0.65);
+        } else {
+          weight *= 1 + (movement * 1.1);
+        }
+      }
+
+      return {
+        value: progression,
+        weight,
+      };
+    }),
+    random,
+  );
+}
+
+function chooseChainedTonic(
+  allowedRoots: string[],
+  currentTonic: string,
+  chainMovement: number,
+  random: () => number,
+): string {
+  if (allowedRoots.length === 0) {
+    return currentTonic;
+  }
+
+  if (!allowedRoots.includes(currentTonic)) {
+    return choose(allowedRoots, random);
+  }
+
+  if (allowedRoots.length === 1) {
+    return currentTonic;
+  }
+
+  const movement = clampUnit(chainMovement / 100);
+
+  return chooseWeighted(
+    allowedRoots.map((root) => {
+      const distance = circleDistance(currentTonic, root);
+
+      if (distance === 0) {
+        let weight = 5 - (movement * 4.2);
+        if (movement >= 0.8) {
+          weight *= 0.42;
+        }
+        return { value: root, weight };
+      }
+
+      let weight = (0.18 + (movement * 2.6)) / distance;
+      if (distance === 1) {
+        weight += movement * 1.15;
+      } else if (distance === 2) {
+        weight += Math.max(0, movement - 0.35) * 0.95;
+      } else if (movement < 0.7) {
+        weight *= 0.18;
+      }
+
+      return { value: root, weight };
+    }),
+    random,
+  );
 }
 
 function pickChainedProgression(
@@ -199,7 +389,7 @@ function pickChainedProgression(
     return previousProgression;
   }
 
-  const movement = Math.min(1, Math.max(0, chainMovement / 100));
+  const movement = clampUnit(chainMovement / 100);
   const primaryTargetId = previousProgression.chainTargets[0] ?? null;
 
   return chooseWeighted(
@@ -277,7 +467,7 @@ function pickImprovementTarget(
     return null;
   }
 
-  const movement = Math.min(1, Math.max(0, chainMovement / 100));
+  const movement = clampUnit(chainMovement / 100);
   const candidateCount = Math.max(
     1,
     Math.min(
@@ -315,14 +505,29 @@ function selectVoicing(
 }
 
 function selectRhythm(
-  unlocked: UnlockState,
   selectedRhythm: ExerciseConfig['rhythm'],
   requested: RhythmCellId,
+  minOffsetBeats: number,
   random: () => number,
 ): RhythmCellId {
+  const allRhythms = Object.keys(RHYTHM_CELLS) as RhythmCellId[];
   const selectedPool = selectedRhythm.includes('all')
-    ? unlocked.rhythms
-    : selectedRhythm.filter((rhythm): rhythm is RhythmCellId => rhythm !== 'all' && unlocked.rhythms.includes(rhythm));
+    ? allRhythms
+    : selectedRhythm.filter((rhythm): rhythm is RhythmCellId => rhythm !== 'all' && allRhythms.includes(rhythm));
+
+  const compatiblePool = selectedPool.filter((rhythmId) => {
+    const rhythmCell = RHYTHM_CELLS[rhythmId];
+    const firstOffset = Math.min(...rhythmCell.hits.map((hit) => hit.offsetBeats));
+    return firstOffset >= minOffsetBeats;
+  });
+
+  if (compatiblePool.includes(requested)) {
+    return requested;
+  }
+
+  if (compatiblePool.length > 0) {
+    return choose(compatiblePool, random);
+  }
 
   if (selectedPool.includes(requested)) {
     return requested;
@@ -332,8 +537,8 @@ function selectRhythm(
     return choose(selectedPool, random);
   }
 
-  const fallback = unlocked.rhythms.filter((rhythm) =>
-    ['block_whole', 'quarters', 'charleston'].includes(rhythm),
+  const fallback = allRhythms.filter((rhythm) =>
+    ['block_whole', 'halves', 'quarters', 'charleston'].includes(rhythm),
   );
 
   return fallback.length > 0 ? choose(fallback, random) : 'block_whole';
@@ -407,6 +612,9 @@ export function generatePhrase({
   random = Math.random,
   midiRange,
   focusOverride,
+  tonicOverride,
+  progressionOverrideId,
+  voicingFamilyOverride,
 }: GeneratePhraseInput): Phrase {
   const progressions = queryProgressions(config);
   if (progressions.length === 0) {
@@ -428,11 +636,26 @@ export function generatePhrase({
   const improvementTarget = isImprovementFlow(config)
     ? pickImprovementTarget(progressions, progress, roots, unlocked, config.chainMovement, random)
     : null;
-  const progression = pickChainedProgression(progressions, chainSource, config.chainMovement, random)
+  const preferredProgression = (progressionOverrideId
+    ? progressions.find((progression) => progression.id === progressionOverrideId) ?? null
+    : null)
+    ?? pickChainedProgression(progressions, chainSource, config.chainMovement, random)
     ?? improvementTarget?.progression
     ?? (isRandomFlow(config) ? choose(progressions, random) : pickProgressionForFocus(progressions, focus, progress, random));
+  const selectionPool = chainSource ? chainedSelectionPool(progressions, chainSource) : progressions;
+  const progression = pickProgressionWithNovelty(
+    selectionPool,
+    progressions,
+    preferredProgression,
+    recentProgressionIds(progressions, progress, previousPhrase),
+    config.chainMovement,
+    random,
+  );
   const lane = progression.lane;
-  const tonic = chainSource?.tonic
+  const tonic = tonicOverride
+    ?? (chainSource
+      ? chooseChainedTonic(roots, chainSource.tonic, config.chainMovement, random)
+      : null)
     ?? improvementTarget?.tonic
     ?? (roots.length > 0 ? choose(roots, random) : 'C');
   const previousPhraseLastEvent = chainSource ? chainSource.events[chainSource.events.length - 1] : null;
@@ -445,6 +668,11 @@ export function generatePhrase({
     ? previousPhraseLastToken.voicingFamily
     : null;
   const voicingFamily = carryForwardVoicingFamily
+    ?? (voicingFamilyOverride
+      && progression.allowedVoicings.includes(voicingFamilyOverride)
+      && unlocked.voicings.includes(voicingFamilyOverride)
+      ? voicingFamilyOverride
+      : null)
     ?? (improvementTarget
       && progression.allowedVoicings.includes(improvementTarget.voicingFamily)
       && unlocked.voicings.includes(improvementTarget.voicingFamily)
@@ -458,6 +686,7 @@ export function generatePhrase({
   let previousMidiVoicing: number[] | undefined = carryForwardVoicingFamily
     ? previousPhraseLastToken?.midiVoicing
     : undefined;
+  let carryoverIntoNextBar = 0;
 
   progression.steps.forEach((step, index) => {
     const token = buildChordToken({
@@ -477,27 +706,17 @@ export function generatePhrase({
     previousMidiVoicing = token.midiVoicing;
 
     const rhythmCellId = selectRhythm(
-      unlocked,
       config.rhythm,
       progression.rhythmPlan[index % progression.rhythmPlan.length],
+      carryoverIntoNextBar,
       random,
     );
     const bar = index + 1;
 
-    if (config.mode === 'improvisation') {
-      events.push({
-        id: `${progression.id}:event:${index + 1}:landing`,
-        chordTokenId: token.id,
-        progressionStepIndex: index,
-        bar,
-        beat: 1,
-        durationBeats: 4,
-        rhythmCellId,
-      });
-      return;
-    }
-
     const rhythmCell = RHYTHM_CELLS[rhythmCellId];
+    const rhythmSpan = Math.max(...rhythmCell.hits.map((hit) => hit.offsetBeats + hit.durationBeats));
+    carryoverIntoNextBar = Math.max(0, rhythmSpan - 4);
+
     rhythmCell.hits.forEach((hit, hitIndex) => {
       events.push({
         id: `${progression.id}:event:${index + 1}:${hitIndex + 1}`,
@@ -532,11 +751,12 @@ export function countPotentialStarterPhrases(progress: ProgressState): number {
   }
 
   const unlocked = aggregateUnlockState(progress);
+  const allRhythms = Object.keys(RHYTHM_CELLS) as RhythmCellId[];
   const rootCount = rootsForKeySet(progress.exerciseConfig.keySet).length || 1;
   const voicingCount = unlocked.voicings.length || 1;
   const selectedRhythms = progress.exerciseConfig.rhythm.includes('all')
-    ? unlocked.rhythms
-    : progress.exerciseConfig.rhythm.filter((rhythm): rhythm is RhythmCellId => rhythm !== 'all' && unlocked.rhythms.includes(rhythm));
+    ? allRhythms
+    : progress.exerciseConfig.rhythm.filter((rhythm): rhythm is RhythmCellId => rhythm !== 'all' && allRhythms.includes(rhythm));
   const rhythmCount = selectedRhythms.length || 1;
 
   return progressions.length * rootCount * voicingCount * rhythmCount;

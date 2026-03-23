@@ -48,6 +48,10 @@ function durationFromBeats(durationBeats: number): string {
   return '8';
 }
 
+function durationFromBeatsRest(durationBeats: number): string {
+  return `${durationFromBeats(durationBeats)}r`;
+}
+
 function durationsForNotation(durationBeats: number): number[] {
   if (durationBeats === 4 || durationBeats === 3 || durationBeats === 2 || durationBeats === 1.5 || durationBeats === 1 || durationBeats === 0.5) {
     return [durationBeats];
@@ -62,6 +66,48 @@ function durationsForNotation(durationBeats: number): number[] {
   }
 
   return [durationBeats];
+}
+
+function roundBeat(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function splitDurationAcrossBars(startAbsoluteBeat: number, durationBeats: number): Array<{
+  bar: number;
+  startBeatInBar: number;
+  durationBeats: number;
+}> {
+  const segments: Array<{
+    bar: number;
+    startBeatInBar: number;
+    durationBeats: number;
+  }> = [];
+
+  let cursor = startAbsoluteBeat;
+  let remaining = durationBeats;
+
+  while (remaining > 0.0001) {
+    const bar = Math.floor(cursor / 4) + 1;
+    const barStart = (bar - 1) * 4;
+    const startBeatInBar = roundBeat(cursor - barStart);
+    const availableInBar = 4 - startBeatInBar;
+    const segmentDuration = roundBeat(Math.min(remaining, availableInBar));
+
+    segments.push({
+      bar,
+      startBeatInBar,
+      durationBeats: segmentDuration,
+    });
+
+    cursor = roundBeat(cursor + segmentDuration);
+    remaining = roundBeat(remaining - segmentDuration);
+  }
+
+  return segments;
+}
+
+function restKeyForClef(clef: 'treble' | 'bass'): string {
+  return clef === 'bass' ? 'd/3' : 'b/4';
 }
 
 function spelledMidiToVexKey(noteSpelling: string, midi: number): { key: string; accidental: string | null } {
@@ -93,6 +139,15 @@ function withAlpha(hexColor: string, alpha: number): string {
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function countAccidentals(noteSpelling: string): number {
+  const accidentalMatch = noteSpelling.match(/[#b]+/g);
+  if (!accidentalMatch) {
+    return 0;
+  }
+
+  return accidentalMatch.join('').length;
 }
 
 interface ScaleDisplay {
@@ -149,26 +204,96 @@ export function NotationStrip({
 
     const barCount = Math.max(...phrase.events.map((event) => event.bar));
     const containerWidth = Math.max(containerRef.current.clientWidth, 960);
-    const horizontalPadding = 48;
-    const rightEdgePadding = 28;
-    const barWidth = Math.max(260, Math.min(460, Math.floor((containerWidth - horizontalPadding) / barCount)));
-    const contentWidth = barCount * barWidth;
-    const width = Math.max(containerWidth, contentWidth + horizontalPadding + rightEdgePadding);
-    const topHudHeight = exerciseMode === 'improvisation' && clef === 'bass' ? 46 : 0;
-    const bottomHudHeight = exerciseMode === 'improvisation' && clef === 'treble' ? 48 : 0;
-    const height = 306 + topHudHeight + bottomHudHeight;
-    const staveY = 96 + topHudHeight;
-    const chordLabelY = 48 + topHudHeight;
-    const contentStartX = Math.max(36, Math.floor((width - contentWidth - rightEdgePadding) / 2));
+    const horizontalPadding = 52;
+    const rightEdgePadding = 44;
+    const bottomHudHeight = exerciseMode === 'improvisation' ? 48 : 0;
+    const height = 306 + bottomHudHeight;
+    const staveY = 96;
+    const chordLabelY = 48;
 
     const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
-    renderer.resize(width, height);
-    const context = renderer.getContext();
     const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette(theme);
 
-    for (let bar = 1; bar <= barCount; bar += 1) {
+    type RenderedSegment = {
+      event: Phrase['events'][number];
+      token: Phrase['tokensById'][string];
+      color: string;
+      bar: number;
+      startBeatInBar: number;
+      durationBeats: number;
+      showChordLabel: boolean;
+    };
+
+    const renderedSegments: RenderedSegment[] = [];
+
+    phrase.events.forEach((event) => {
+      const token = phrase.tokensById[event.chordTokenId];
+      const eventIndex = phrase.events.findIndex((candidate) => candidate.id === event.id);
+      const isCompleted = completedEventIds.has(event.id);
+      const isCurrent = eventIndex === currentEventIndex;
+      const intervalColor = intervalColorForTonicAndRoot(phrase.tonic, token.pitchClasses[0] ?? null);
+      let eventColor = intervalColor;
+
+      if (isCompleted) {
+        eventColor = notationCompletedInk;
+      } else if (!isCurrent) {
+        eventColor = withAlpha(intervalColor, 0.62);
+      }
+
+      const startAbsoluteBeat = ((event.bar - 1) * 4) + (event.beat - 1);
+      const barSegments = splitDurationAcrossBars(startAbsoluteBeat, event.durationBeats);
+
+      barSegments.forEach((barSegment, barSegmentIndex) => {
+        let subCursor = barSegment.startBeatInBar;
+        durationsForNotation(barSegment.durationBeats).forEach((segmentDuration, segmentIndex) => {
+          renderedSegments.push({
+            event,
+            token,
+            color: eventColor,
+            bar: barSegment.bar,
+            startBeatInBar: subCursor,
+            durationBeats: segmentDuration,
+            showChordLabel: barSegmentIndex === 0 && segmentIndex === 0,
+          });
+          subCursor = roundBeat(subCursor + segmentDuration);
+        });
+      });
+    });
+
+    const barWidths = Array.from({ length: barCount }, (_, index) => {
+      const bar = index + 1;
       const barEvents = phrase.events.filter((event) => event.bar === bar);
-      const x = contentStartX + (bar - 1) * barWidth;
+      const hitCount = barEvents.length;
+      const accidentalCount = unique(barEvents.flatMap((event) => {
+        const token = phrase.tokensById[event.chordTokenId];
+        return token.spelledVoicing.slice(0, 4);
+      })).reduce((count, spelling) => count + countAccidentals(spelling), 0);
+      const baseWidth = bar === 1 ? 360 : 300;
+      const hitWidth = Math.max(0, hitCount - 1) * 34;
+      const accidentalWidth = accidentalCount * 12;
+      return baseWidth + hitWidth + accidentalWidth;
+    });
+
+    const contentWidth = barWidths.reduce((sum, barWidth) => sum + barWidth, 0);
+    const width = Math.max(containerWidth, contentWidth + horizontalPadding + rightEdgePadding);
+    const contentStartX = Math.max(32, Math.floor((width - contentWidth - rightEdgePadding) / 2));
+
+    renderer.resize(width, height);
+    const context = renderer.getContext();
+    const barStartXs = barWidths.reduce<number[]>((positions, _barWidth, index) => {
+      if (index === 0) {
+        positions.push(contentStartX);
+      } else {
+        positions.push(positions[index - 1] + barWidths[index - 1]);
+      }
+      return positions;
+    }, []);
+
+    const previousNoteByEventId = new Map<string, { staveNote: StaveNote; noteCount: number }>();
+
+    for (let bar = 1; bar <= barCount; bar += 1) {
+      const barWidth = barWidths[bar - 1];
+      const x = barStartXs[bar - 1];
       const stave = new Stave(x, staveY, barWidth - 12);
       if (bar === 1) {
         stave.addClef(clef).addTimeSignature('4/4');
@@ -178,78 +303,102 @@ export function NotationStrip({
       stave.setContext(context).draw();
 
       const renderedNotes: Array<{
-        event: Phrase['events'][number];
-        token: Phrase['tokensById'][string];
+        event: Phrase['events'][number] | null;
+        token: Phrase['tokensById'][string] | null;
         staveNote: StaveNote;
-        eventColor: string;
+        eventColor: string | null;
         showChordLabel: boolean;
       }> = [];
       const ties: StaveTie[] = [];
 
-      barEvents.forEach((event, eventPosition) => {
-        const token = phrase.tokensById[event.chordTokenId];
-        const keys = token.midiVoicing
+      const barSegments = renderedSegments
+        .filter((segment) => segment.bar === bar)
+        .sort((left, right) => left.startBeatInBar - right.startBeatInBar);
+
+      let cursor = 0;
+
+      barSegments.forEach((segment) => {
+        const gap = roundBeat(segment.startBeatInBar - cursor);
+        if (gap > 0.0001) {
+          durationsForNotation(gap).forEach((restDuration) => {
+            renderedNotes.push({
+              event: null,
+              token: null,
+              staveNote: new StaveNote({
+                clef,
+                keys: [restKeyForClef(clef)],
+                duration: durationFromBeatsRest(restDuration),
+              }),
+              eventColor: null,
+              showChordLabel: false,
+            });
+          });
+        }
+
+        const keys = segment.token.midiVoicing
           .slice(0, 4)
           .map((note, index) => ({
             midi: note,
-            spelling: token.spelledVoicing[index] ?? token.pitchClasses[index] ?? 'C',
+            spelling: segment.token.spelledVoicing[index] ?? segment.token.pitchClasses[index] ?? 'C',
           }))
           .sort((a, b) => a.midi - b.midi)
           .map((entry) => spelledMidiToVexKey(entry.spelling, entry.midi));
 
-        const eventIndex = phrase.events.findIndex((candidate) => candidate.id === event.id);
-        const isCompleted = completedEventIds.has(event.id);
-        const isCurrent = eventIndex === currentEventIndex;
-        const intervalColor = intervalColorForTonicAndRoot(phrase.tonic, token.pitchClasses[0] ?? null);
-        let eventColor = intervalColor;
-
-        if (isCompleted) {
-          eventColor = notationCompletedInk;
-        } else if (!isCurrent) {
-          eventColor = withAlpha(intervalColor, 0.62);
-        }
-
-        let previousSegment: StaveNote | null = null;
-
-        durationsForNotation(event.durationBeats).forEach((segmentDuration, segmentIndex) => {
-          const staveNote = new StaveNote({
-            clef,
-            keys: keys.map((entry) => entry.key),
-            duration: durationFromBeats(segmentDuration),
-          });
-
-          keys.forEach((entry, index) => {
-            if (entry.accidental) {
-              staveNote.addModifier(new Accidental(entry.accidental), index);
-            }
-          });
-
-          staveNote.setStyle({ fillStyle: eventColor, strokeStyle: eventColor });
-
-          renderedNotes.push({
-            event,
-            token,
-            staveNote,
-            eventColor,
-            showChordLabel: eventPosition === 0 && segmentIndex === 0,
-          });
-
-          if (previousSegment) {
-            ties.push(new StaveTie({
-              firstNote: previousSegment,
-              lastNote: staveNote,
-              firstIndexes: keys.map((_, noteIndex) => noteIndex),
-              lastIndexes: keys.map((_, noteIndex) => noteIndex),
-            }));
-          }
-
-          previousSegment = staveNote;
+        const staveNote = new StaveNote({
+          clef,
+          keys: keys.map((entry) => entry.key),
+          duration: durationFromBeats(segment.durationBeats),
         });
+
+        keys.forEach((entry, index) => {
+          if (entry.accidental) {
+            staveNote.addModifier(new Accidental(entry.accidental), index);
+          }
+        });
+
+        staveNote.setStyle({ fillStyle: segment.color, strokeStyle: segment.color });
+
+        renderedNotes.push({
+          event: segment.event,
+          token: segment.token,
+          staveNote,
+          eventColor: segment.color,
+          showChordLabel: segment.showChordLabel,
+        });
+
+        const previousSegment = previousNoteByEventId.get(segment.event.id);
+        if (previousSegment) {
+          ties.push(new StaveTie({
+            firstNote: previousSegment.staveNote,
+            lastNote: staveNote,
+            firstIndexes: Array.from({ length: previousSegment.noteCount }, (_, noteIndex) => noteIndex),
+            lastIndexes: keys.map((_, noteIndex) => noteIndex),
+          }));
+        }
+        previousNoteByEventId.set(segment.event.id, { staveNote, noteCount: keys.length });
+        cursor = roundBeat(segment.startBeatInBar + segment.durationBeats);
       });
+
+      const tailRest = roundBeat(4 - cursor);
+      if (tailRest > 0.0001) {
+        durationsForNotation(tailRest).forEach((restDuration) => {
+          renderedNotes.push({
+            event: null,
+            token: null,
+            staveNote: new StaveNote({
+              clef,
+              keys: [restKeyForClef(clef)],
+              duration: durationFromBeatsRest(restDuration),
+            }),
+            eventColor: null,
+            showChordLabel: false,
+          });
+        });
+      }
 
       const voice = new Voice({ numBeats: 4, beatValue: 4 });
       voice.addTickables(renderedNotes.map((entry) => entry.staveNote));
-      new Formatter().joinVoices([voice]).format([voice], Math.max(170, barWidth - (bar === 1 ? 128 : 60)));
+      new Formatter().joinVoices([voice]).format([voice], Math.max(210, barWidth - (bar === 1 ? 180 : 72)));
       context.setFillStyle(notationInk);
       context.setStrokeStyle(notationInk);
       voice.draw(context, stave);
@@ -257,7 +406,7 @@ export function NotationStrip({
       ties.forEach((tie) => tie.setContext(context).draw());
 
       renderedNotes.forEach((entry) => {
-        if (!entry.showChordLabel) {
+        if (!entry.showChordLabel || !entry.token || !entry.eventColor) {
           return;
         }
         const xPos = entry.staveNote.getAbsoluteX() - 16;
@@ -275,7 +424,7 @@ export function NotationStrip({
   return (
     <div className={`notation-strip ${exerciseMode === 'improvisation' ? `improvisation ${clef}` : ''}`.trim()}>
       {exerciseMode === 'improvisation' && currentScaleDisplay ? (
-        <div className={`notation-scale-hud ${clef}`.trim()}>
+        <div className="notation-scale-hud">
           {nextScaleDisplay ? (
             <p className="notation-scale-row next">
               <strong>Next:</strong>{' '}

@@ -45,11 +45,19 @@ export type VoicingFamily =
 
 export type RhythmCellId =
   | 'block_whole'
+  | 'halves'
   | 'quarters'
   | 'charleston'
+  | 'tresillo_332'
+  | 'backbeat_2_4'
+  | 'push_2and_hold'
   | 'anticipation_4and'
+  | 'push_4and_hold'
+  | 'hold_from_3'
   | 'offbeat_1and_3'
-  | 'syncopated_2and_4';
+  | 'syncopated_2and_4'
+  | 'late_pickup_4'
+  | 'floating_2and';
 
 export type RhythmFilterId = RhythmCellId | 'all';
 export type RhythmSelection = RhythmFilterId[];

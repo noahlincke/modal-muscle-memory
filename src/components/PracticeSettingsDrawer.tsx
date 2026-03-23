@@ -53,8 +53,19 @@ interface PracticeSettingsDrawerProps {
 const RHYTHM_OPTIONS: Array<{ value: RhythmFilterId; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'block_whole', label: 'Whole Notes' },
+  { value: 'halves', label: 'Half Notes' },
   { value: 'quarters', label: 'Quarter Notes' },
   { value: 'charleston', label: 'Charleston' },
+  { value: 'tresillo_332', label: 'Tresillo 3-3-2' },
+  { value: 'backbeat_2_4', label: 'Backbeat 2 + 4' },
+  { value: 'push_2and_hold', label: 'Push 2& Hold' },
+  { value: 'anticipation_4and', label: 'Anticipation 4&' },
+  { value: 'push_4and_hold', label: 'Push 4& Across' },
+  { value: 'hold_from_3', label: 'Hold From 3' },
+  { value: 'offbeat_1and_3', label: 'Offbeat 1& + 3' },
+  { value: 'syncopated_2and_4', label: 'Syncopated 2& + 4' },
+  { value: 'late_pickup_4', label: 'Pickup 4' },
+  { value: 'floating_2and', label: 'Floating 2&' },
 ];
 
 function PersonIcon() {
@@ -97,10 +108,6 @@ export function PracticeSettingsDrawer({
   const isImprovisationMode = progress.exerciseConfig.mode === 'improvisation';
   const config = progress.exerciseConfig;
   const selectedKeySet = KEY_SET_OPTIONS.find((option) => option.id === progress.exerciseConfig.keySet) ?? null;
-  const unlockedRhythms = useMemo(
-    () => [...new Set(Object.values(progress.unlocksByLane).flatMap((unlock) => unlock.rhythms))],
-    [progress.unlocksByLane],
-  );
   const optionAvailability = useMemo(() => {
     const withConfig = (nextConfig: ExerciseConfig): boolean => countMatchingProgressions(nextConfig) > 0;
     const currentMatches = new Set(matchingProgressionIds(config));
@@ -311,6 +318,7 @@ export function PracticeSettingsDrawer({
                 <span>Repetitive</span>
                 <span>Moving</span>
               </div>
+              <p className="settings-meta">Repetitive repeats recent or weak material more often. Moving prefers less recent progressions and exits short loops sooner.</p>
             </div>
           </section>
         ) : (
@@ -363,6 +371,7 @@ export function PracticeSettingsDrawer({
                 <span>Repetitive</span>
                 <span>Moving</span>
               </div>
+              <p className="settings-meta">Repetitive repeats recent or weak material more often. Moving prefers less recent progressions and exits short loops sooner.</p>
             </div>
           </section>
         )}
@@ -521,7 +530,6 @@ export function PracticeSettingsDrawer({
                 key={option.value}
                 type="button"
                 className={`settings-pill ${progress.exerciseConfig.rhythm.includes(option.value) ? 'active' : ''}`.trim()}
-                disabled={option.value !== 'all' && !unlockedRhythms.includes(option.value)}
                 onClick={() => onSelectRhythm(option.value)}
               >
                 {option.label}

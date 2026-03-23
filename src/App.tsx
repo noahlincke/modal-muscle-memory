@@ -4,6 +4,7 @@ import {
   applyCurriculumPreset,
   getCurriculumPreset,
 } from './content/curriculum';
+import { nextRootOnCircle, rootsForKeySet } from './content/keys';
 import { PracticeLayout } from './components/PracticeLayout';
 import { PracticeSettingsDrawer } from './components/PracticeSettingsDrawer';
 import { ProgressScreen } from './components/ProgressScreen';
@@ -151,11 +152,19 @@ const DISPLAY_NOTE_LABELS: Record<string, string> = {
 
 const SPECIFIC_RHYTHM_IDS = [
   'block_whole',
+  'halves',
   'quarters',
   'charleston',
+  'tresillo_332',
+  'backbeat_2_4',
+  'push_2and_hold',
   'anticipation_4and',
+  'push_4and_hold',
+  'hold_from_3',
   'offbeat_1and_3',
   'syncopated_2and_4',
+  'late_pickup_4',
+  'floating_2and',
 ] as const;
 
 function normalizeRhythmSelection(selection: ProgressState['exerciseConfig']['rhythm']): ProgressState['exerciseConfig']['rhythm'] {
@@ -685,6 +694,60 @@ export default function App() {
     captureRef.current.clearRecent();
   }, [midiState.ready, updateCurrentEventIndex]);
 
+  const stepCurrentKey = useCallback((direction: 'clockwise' | 'counterclockwise') => {
+    const workingPhrase = phraseRef.current;
+    if (!workingPhrase) {
+      return;
+    }
+
+    const allowedRoots = rootsForKeySet(progressRef.current.exerciseConfig.keySet);
+    if (allowedRoots.length <= 1) {
+      return;
+    }
+
+    const nextRoot = nextRootOnCircle(workingPhrase.tonic, allowedRoots, direction);
+    if (!nextRoot || nextRoot === workingPhrase.tonic) {
+      return;
+    }
+
+    const firstToken = workingPhrase.events[0]
+      ? workingPhrase.tokensById[workingPhrase.events[0].chordTokenId]
+      : null;
+    const useKeyboardFriendlyRange = !midiState.ready && progressRef.current.settings.keyboardFriendlyVoicings;
+
+    carryoverNotesRef.current = new Set(captureRef.current.activeNoteNumbers);
+    suppressCarryoverDisplayRef.current = false;
+    setKeyboardTargetOverrideNotes(null);
+
+    const nextPhrase = generatePhrase({
+      config: progressRef.current.exerciseConfig,
+      progress: progressRef.current,
+      tempo: progressRef.current.settings.tempo,
+      midiRange: useKeyboardFriendlyRange
+        ? qwertyFriendlyRangeForOctaveShift(qwertyOctaveShiftRef.current)
+        : undefined,
+      tonicOverride: nextRoot,
+      progressionOverrideId: workingPhrase.progressionId,
+      voicingFamilyOverride: firstToken?.voicingFamily,
+    });
+
+    setPhrase(nextPhrase);
+    updateCurrentEventIndex(0);
+    setCompletedEventIds(new Set());
+    setLatestEvaluation(null);
+    setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+    metronomeRef.current.stop();
+    setIsRunning(false);
+    isRunningRef.current = false;
+    phraseStartAtMsRef.current = 0;
+    phraseStartedAtIsoRef.current = null;
+    previousTokenIdRef.current = null;
+    previousEventEndNotesRef.current = [];
+    phraseAttemptHistoryRef.current = [];
+    pendingAdvanceRef.current = null;
+    captureRef.current.clearRecent();
+  }, [midiState.ready, updateCurrentEventIndex]);
+
   useEffect(() => {
     if (!phrase && matchingProgressionCount > 0) {
       generateNextPhrase(progressRef.current);
@@ -1194,6 +1257,34 @@ export default function App() {
   }, [computerKeyboardAudioEnabled, handleMidiMessage, inputMode, releaseAllQwertyNotes]);
 
   useEffect(() => {
+    const handleArrowKeyStep = (event: KeyboardEvent) => {
+      if (screen !== 'practice' || event.metaKey || event.ctrlKey || event.altKey || isTextInputTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurrentKey('counterclockwise');
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurrentKey('clockwise');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleArrowKeyStep);
+    return () => {
+      window.removeEventListener('keydown', handleArrowKeyStep);
+    };
+  }, [screen, stepCurrentKey]);
+
+  useEffect(() => {
     if (screen !== 'practice' || !phrase) {
       return;
     }
@@ -1695,6 +1786,11 @@ export default function App() {
     };
   }, [progress.exerciseConfig.mode, progress.settings.registerMax, progress.settings.registerMin]);
 
+  const allowedRoots = useMemo(
+    () => rootsForKeySet(progress.exerciseConfig.keySet),
+    [progress.exerciseConfig.keySet],
+  );
+
   if (screen === 'progress') {
     return (
       <ProgressScreen
@@ -1729,6 +1825,7 @@ export default function App() {
         latestEvaluation={latestEvaluation}
         midiState={midiState}
         inputMode={inputMode}
+        canStepKey={allowedRoots.length > 1 && Boolean(phrase)}
         qwertyOctaveShift={qwertyOctaveShift}
         tempo={progress.settings.tempo}
         keyboardTargetNotes={keyboardTargetNotes}
@@ -1753,6 +1850,8 @@ export default function App() {
         onToggleCircleVisualizationMode={toggleCircleVisualizationMode}
         onToggleImmersiveMode={toggleImmersiveMode}
         onToggleClef={toggleClef}
+        onStepKeyBackward={() => stepCurrentKey('counterclockwise')}
+        onStepKeyForward={() => stepCurrentKey('clockwise')}
         onToggleMetronome={toggleMetronome}
         onToggleTheme={() => setTheme((currentTheme) => nextTheme(currentTheme))}
         onPlayReference={playReference}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCurriculumPreset, curriculumPresetIdForLane } from '../../content/curriculum';
+import { rootsForKeySet } from '../../content/keys';
 import { countMatchingProgressions, generatePhrase } from './phraseGenerator';
 import { createDefaultProgressState } from '../storage/progressStore';
 
@@ -91,7 +92,7 @@ describe('phraseGenerator', () => {
     expect(phrase.events.some((event) => event.beat === 2.5)).toBe(true);
   });
 
-  it('keeps improvisation on one landing event per progression step', () => {
+  it('expands selected rhythm cells into landing events in improvisation mode', () => {
     const progress = createDefaultProgressState();
     progress.exerciseConfig.mode = 'improvisation';
     progress.exerciseConfig.rhythm = ['charleston'];
@@ -103,9 +104,9 @@ describe('phraseGenerator', () => {
       random: seededRandom(9),
     });
 
-    expect(phrase.events.length).toBe(phrase.progression.steps.length);
-    expect(phrase.events.every((event) => event.beat === 1)).toBe(true);
-    expect(phrase.events.every((event) => event.durationBeats === 4)).toBe(true);
+    expect(phrase.events.length).toBe(phrase.progression.steps.length * 2);
+    expect(phrase.events.every((event) => event.rhythmCellId === 'charleston')).toBe(true);
+    expect(phrase.events.some((event) => event.beat === 2.5)).toBe(true);
     expect(phrase.events.every((event) => event.rhythmCellId === 'charleston')).toBe(true);
   });
 
@@ -215,7 +216,40 @@ describe('phraseGenerator', () => {
 
     expect(nextPhrase.progressionId).not.toBe(previousPhrase.progressionId);
     expect(previousPhrase.progression.chainTargets).toContain(nextPhrase.progressionId);
-    expect(nextPhrase.tonic).toBe(previousPhrase.tonic);
+    expect(rootsForKeySet(progress.exerciseConfig.keySet)).toContain(nextPhrase.tonic);
+  });
+
+  it('can move to other allowed keys during chained flow when movement is high', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'improvisation';
+    progress.exerciseConfig.improvisationProgressionMode = 'chained';
+    progress.exerciseConfig.chainMovement = 100;
+    progress.exerciseConfig.keySet = 'max_2_accidentals';
+
+    let previousPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(19),
+    });
+
+    const tonics = new Set<string>([previousPhrase.tonic]);
+    const random = seededRandom(41);
+
+    for (let index = 0; index < 10; index += 1) {
+      const nextPhrase = generatePhrase({
+        config: progress.exerciseConfig,
+        progress,
+        tempo: 78,
+        previousPhrase,
+        random,
+      });
+
+      tonics.add(nextPhrase.tonic);
+      previousPhrase = nextPhrase;
+    }
+
+    expect(tonics.size).toBeGreaterThan(1);
   });
 
   it('can follow chain targets in guided mode when flow motion is high', () => {
@@ -242,7 +276,59 @@ describe('phraseGenerator', () => {
 
     expect(nextPhrase.progressionId).not.toBe(previousPhrase.progressionId);
     expect(previousPhrase.progression.chainTargets).toContain(nextPhrase.progressionId);
-    expect(nextPhrase.tonic).toBe(previousPhrase.tonic);
+    expect(rootsForKeySet(progress.exerciseConfig.keySet)).toContain(nextPhrase.tonic);
+  });
+
+  it('can break out of a tiny recent chain loop when flow motion is high', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'guided';
+    progress.exerciseConfig.guidedFlowMode = 'musical_chaining';
+    progress.exerciseConfig.chainMovement = 100;
+
+    const previousPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(5),
+    });
+
+    previousPhrase.progressionId = 'ionian_turnaround';
+    previousPhrase.progression = {
+      ...previousPhrase.progression,
+      id: 'ionian_turnaround',
+      chainTargets: ['ionian_cadence_return', 'ionian_predominant', 'ionian_scalar_up'],
+    };
+
+    progress.sessionHistory = [
+      {
+        id: 'loop-1',
+        mode: 'guided',
+        curriculumPresetId: progress.exerciseConfig.curriculumPresetId,
+        lane: 'ionian',
+        startedAt: new Date('2026-03-21T10:00:00.000Z').toISOString(),
+        endedAt: new Date('2026-03-21T10:01:00.000Z').toISOString(),
+        phraseIds: [
+          'phrase:guided:ionian:musical_chaining:ionian_turnaround:C:shell_137:1',
+          'phrase:guided:ionian:musical_chaining:ionian_cadence_return:C:shell_137:2',
+          'phrase:guided:ionian:musical_chaining:ionian_turnaround:C:shell_137:3',
+          'phrase:guided:ionian:musical_chaining:ionian_cadence_return:C:shell_137:4',
+          'phrase:guided:ionian:musical_chaining:ionian_turnaround:C:shell_137:5',
+          'phrase:guided:ionian:musical_chaining:ionian_cadence_return:C:shell_137:6',
+        ],
+        accuracy: 0.64,
+        medianTransitionLatencyMs: 520,
+      },
+    ];
+
+    const nextPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      previousPhrase,
+      random: () => 0.1,
+    });
+
+    expect(['ionian_turnaround', 'ionian_cadence_return']).not.toContain(nextPhrase.progressionId);
   });
 
   it('targets the weakest recent guided phrase when improvement mode is selected', () => {
@@ -302,6 +388,61 @@ describe('phraseGenerator', () => {
     expect(nextPhrase.progressionId).toBe(weakerPhrase.progressionId);
     expect(nextPhrase.tonic).toBe(weakerPhrase.tonic);
     expect(nextVoicing).toBe(weakerVoicing);
+  });
+
+  it('can still stay on the weakest recent phrase when flow motion is low', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'guided';
+    progress.exerciseConfig.guidedFlowMode = 'targeting_improvement';
+    progress.exerciseConfig.chainMovement = 0;
+
+    const weakerPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(13),
+    });
+    const strongerPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(27),
+    });
+
+    progress.sessionHistory = [
+      {
+        id: 'session-weak-1',
+        mode: progress.exerciseConfig.mode,
+        curriculumPresetId: progress.exerciseConfig.curriculumPresetId,
+        lane: strongerPhrase.lane,
+        startedAt: new Date('2026-03-21T09:00:00.000Z').toISOString(),
+        endedAt: new Date('2026-03-21T09:01:00.000Z').toISOString(),
+        phraseIds: [strongerPhrase.id],
+        accuracy: 0.95,
+        medianTransitionLatencyMs: 380,
+      },
+      {
+        id: 'session-weak-2',
+        mode: progress.exerciseConfig.mode,
+        curriculumPresetId: progress.exerciseConfig.curriculumPresetId,
+        lane: weakerPhrase.lane,
+        startedAt: new Date('2026-03-21T09:02:00.000Z').toISOString(),
+        endedAt: new Date('2026-03-21T09:03:00.000Z').toISOString(),
+        phraseIds: [weakerPhrase.id],
+        accuracy: 0.41,
+        medianTransitionLatencyMs: 760,
+      },
+    ];
+
+    const nextPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      previousPhrase: weakerPhrase,
+      random: seededRandom(91),
+    });
+
+    expect(nextPhrase.progressionId).toBe(weakerPhrase.progressionId);
   });
 
   it('targets the weakest recent improvisation phrase when improvement mode is selected', () => {

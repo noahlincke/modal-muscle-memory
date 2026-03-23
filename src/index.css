@@ -349,7 +349,7 @@ html[data-immersive='true'] .tempo-field {
 
 .hud-primary-strip {
   display: grid;
-  grid-template-columns: minmax(0, 2.6fr) minmax(140px, 1fr) minmax(180px, 1.2fr);
+  grid-template-columns: minmax(0, 2.75fr) minmax(96px, 0.7fr) minmax(240px, 1.35fr);
   gap: 0.6rem;
 }
 
@@ -399,8 +399,75 @@ html[data-immersive='true'] .tempo-field {
 }
 
 .hud-primary-key .hud-primary-value {
-  text-align: center;
-  font-size: clamp(1.46rem, 2.8vw, 2.1rem);
+  text-align: left;
+  font-size: clamp(1.32rem, 2.2vw, 1.82rem);
+}
+
+.hud-primary-key-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.26rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
+
+.hud-primary-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.14rem;
+  width: 100%;
+}
+
+.hud-key-step {
+  width: 20px;
+  height: 54px;
+  border-radius: 0.55rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.hud-key-step:disabled {
+  opacity: 0.4;
+}
+
+.key-signature-staff {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  min-width: 3.5rem;
+  transform: translateY(-0.08rem);
+}
+
+.key-signature-svg {
+  display: block;
+  height: 1.28em;
+  width: 3.5rem;
+  overflow: visible;
+}
+
+.key-signature-line {
+  stroke: color-mix(in srgb, var(--ink-soft) 66%, transparent);
+  stroke-width: 0.94;
+}
+
+.key-signature-glyph {
+  fill: var(--ink);
+  font-family: 'Bravura Text', 'Noto Music', 'Segoe UI Symbol', 'Times New Roman', serif;
+  font-size: 11.2px;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .hud-primary-meta {
@@ -408,7 +475,10 @@ html[data-immersive='true'] .tempo-field {
 }
 
 .hud-primary-content-value {
-  font-size: clamp(1.32rem, 2.6vw, 1.92rem);
+  font-size: clamp(1.08rem, 1.9vw, 1.44rem);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 0.45rem;
 }
 
 .hud-stat-grid {
@@ -486,18 +556,11 @@ html[data-immersive='true'] .tempo-field {
   position: absolute;
   left: 1rem;
   right: 1rem;
+  bottom: 0.8rem;
   display: grid;
   gap: 0.16rem;
   pointer-events: none;
   z-index: 2;
-}
-
-.notation-scale-hud.bass {
-  top: 0.8rem;
-}
-
-.notation-scale-hud.treble {
-  bottom: 0.8rem;
 }
 
 .notation-scale-hud p {
