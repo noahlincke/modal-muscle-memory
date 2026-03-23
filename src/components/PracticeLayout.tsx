@@ -290,7 +290,7 @@ export function PracticeLayout({
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
   const chordLabel = latestEvaluation ? (latestEvaluation.success ? '✓' : 'X') : '—';
   const chordHighlightColor = intervalColorForTonicAndRoot(phrase?.tonic ?? null, currentToken?.pitchClasses[0] ?? null);
-  const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided Practice';
+  const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided';
   const showPerformanceStats = exerciseMode !== 'improvisation';
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
   const [showKeyboardGuide, setShowKeyboardGuide] = useState(false);
