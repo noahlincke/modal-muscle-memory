@@ -64,6 +64,20 @@ export const PROGRESSION_FAMILY_OPTIONS: Array<{ id: ProgressionFamilyTag; label
 
 export const CONTENT_BLOCKS: ContentBlock[] = [
   {
+    id: 'guide_tone_foundations',
+    label: 'Guide-Tone Foundations',
+    description: 'Guide-tone ii-V-I and circle drills with compact rootless extensions.',
+    progressionIds: [
+      'guide_tone_ii_v_i',
+      'guide_tone_turnaround_cycle',
+      'guide_tone_circle_fragment',
+      'guide_tone_rootless_resolution',
+      'guide_tone_rootless_circle',
+    ],
+    scaleFamilyIds: ['diatonic_modes'],
+    progressionFamilyTags: ['predominant', 'cadence', 'turnaround', 'circle_motion'],
+  },
+  {
     id: 'major_foundations',
     label: 'Major Foundations',
     description: 'Major-key scalar motion, cadences, and turnarounds.',
@@ -191,6 +205,16 @@ export const CURRICULUM_PRESETS: CurriculumPreset[] = [
     enabledScaleFamilyIds: ['diatonic_modes', 'pentatonic_blues'],
     enabledProgressionFamilyTags: ['cadence', 'turnaround', 'borrowed', 'backdoor'],
     keySet: 'max_3_accidentals',
+  },
+  {
+    id: 'guide_tone_foundations',
+    label: 'Guide-Tone Foundations',
+    description: 'ii-V-I and circle practice built around 3rds, 7ths, and compact rootless colors.',
+    fallbackLane: 'ionian',
+    enabledContentBlockIds: ['guide_tone_foundations'],
+    enabledScaleFamilyIds: ['diatonic_modes'],
+    enabledProgressionFamilyTags: ['predominant', 'cadence', 'turnaround', 'circle_motion'],
+    keySet: 'max_2_accidentals',
   },
   {
     id: 'modal_colors',

@@ -8,6 +8,7 @@ export type ModeLane =
   | 'phrygian';
 
 export type CurriculumPresetId =
+  | 'guide_tone_foundations'
   | 'major_foundations'
   | 'minor_foundations'
   | 'mixture_foundations'
@@ -17,6 +18,7 @@ export type CurriculumPresetId =
   | 'full_library';
 
 export type ContentBlockId =
+  | 'guide_tone_foundations'
   | 'major_foundations'
   | 'minor_foundations'
   | 'borrowed_color'
@@ -26,6 +28,7 @@ export type ContentBlockId =
   | 'symmetric_color';
 
 export type ExerciseMode = 'guided' | 'improvisation';
+export type VoicingPracticeMode = 'auto' | 'custom';
 export type GuidedFlowMode = 'random' | 'targeting_improvement' | 'musical_chaining';
 export type ImprovisationProgressionMode = 'random' | 'targeting_improvement' | 'chained';
 export type ImprovisationAdvanceMode = 'immediate' | 'footpedal_release';
@@ -33,8 +36,12 @@ export type CircleVisualizationMode = 'intervals' | 'chord_arrows';
 
 export type VoicingFamily =
   | 'triad_root'
+  | 'guide_tone_37'
+  | 'guide_tone_73'
   | 'shell_137'
   | 'shell_173'
+  | 'rootless_379'
+  | 'rootless_7313'
   | 'closed_7th'
   | 'inversion_1'
   | 'inversion_2'

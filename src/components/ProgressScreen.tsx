@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { CONTENT_BLOCKS, getCurriculumPreset } from '../content/curriculum';
-import { PROGRESSION_LIBRARY } from '../content/progressions';
+import {
+  buildProgressionMasterySummaries,
+  MASTERY_MIN_ATTEMPTS,
+  MASTERY_TARGET_ACCURACY,
+} from '../lib/progressionMastery';
 import { humanizeSnakeCase, progressionRomanSummary, progressionSubtitle } from '../lib/progressionLabels';
-import type { CurriculumPresetId, ProgressionDefinition, VoicingFamily } from '../types/music';
+import type { CurriculumPresetId, ProgressionDefinition } from '../types/music';
 import type { ProgressState, SessionRecord } from '../types/progress';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -11,17 +15,6 @@ interface ProgressScreenProps {
   theme: 'light' | 'dark' | 'focus';
   onBack: () => void;
   onToggleTheme: () => void;
-}
-
-interface PhraseIdMetadata {
-  progressionId: string;
-  tonic: string;
-  voicingFamily: VoicingFamily;
-}
-
-interface ProgressionHistoryEntry {
-  accuracy: number;
-  endedAt: string;
 }
 
 interface ProgressionSummary {
@@ -46,18 +39,8 @@ interface PracticeBlock {
   phraseCount: number;
 }
 
-const MASTERY_MIN_ATTEMPTS = 3;
-const MASTERY_TARGET_ACCURACY = 0.9;
 const SESSIONS_PER_WEEK_TARGET = 2;
 const PRACTICE_BLOCK_GAP_MS = 1000 * 60 * 12;
-
-function average(values: number[]): number {
-  if (values.length === 0) {
-    return 0;
-  }
-
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
 
 function pct(value: number): string {
   return `${Math.round(value * 100)}%`;
@@ -125,22 +108,6 @@ function formatRelativeDate(iso: string | null): string {
     return 'Yesterday';
   }
   return `${dayDiff} days ago`;
-}
-
-function parsePhraseIdMetadata(phraseId: string): PhraseIdMetadata | null {
-  const parts = phraseId.split(':');
-  if (parts.length < 7) {
-    return null;
-  }
-
-  const progressionId = parts[4];
-  const tonic = parts[5];
-  const voicingFamily = parts[6] as VoicingFamily;
-  if (!progressionId || !tonic || !voicingFamily) {
-    return null;
-  }
-
-  return { progressionId, tonic, voicingFamily };
 }
 
 function groupPracticeBlocks(sessionHistory: SessionRecord[]): PracticeBlock[] {
@@ -253,39 +220,11 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
   const { weeks: consistencyStreakWeeks, thisWeekCount } = consistencyStreak(practiceBlocks);
   const blockLabels = blockLabelByProgressionId();
 
-  const progressionHistory = progress.sessionHistory.reduce<Record<string, ProgressionHistoryEntry[]>>((result, session) => {
-    session.phraseIds.forEach((phraseId) => {
-      const parsed = parsePhraseIdMetadata(phraseId);
-      if (!parsed) {
-        return;
-      }
-      result[parsed.progressionId] ??= [];
-      result[parsed.progressionId].push({
-        accuracy: session.accuracy,
-        endedAt: session.endedAt,
-      });
-    });
-    return result;
-  }, {});
-
-  const progressionSummaries: ProgressionSummary[] = PROGRESSION_LIBRARY.map((progression) => {
-    const history = (progressionHistory[progression.id] ?? [])
-      .sort((a, b) => new Date(a.endedAt).getTime() - new Date(b.endedAt).getTime());
-    const recent = history.slice(-MASTERY_MIN_ATTEMPTS);
-    const previous = history.slice(-(MASTERY_MIN_ATTEMPTS * 2), -MASTERY_MIN_ATTEMPTS);
-    const recentAccuracyValue = recent.length > 0 ? average(recent.map((entry) => entry.accuracy)) : 0;
-    const previousAccuracyValue = previous.length > 0 ? average(previous.map((entry) => entry.accuracy)) : null;
-
-    return {
-      progression,
-      attempts: history.length,
-      recentAccuracy: recentAccuracyValue,
-      improvement: previousAccuracyValue === null ? null : recentAccuracyValue - previousAccuracyValue,
-      mastered: history.length >= MASTERY_MIN_ATTEMPTS && recentAccuracyValue >= MASTERY_TARGET_ACCURACY,
-      lastPracticedAt: history[history.length - 1]?.endedAt ?? null,
-      contentBlockLabel: blockLabels.get(progression.id) ?? 'Custom content',
-    };
-  });
+  const progressionSummaries: ProgressionSummary[] = buildProgressionMasterySummaries(progress)
+    .map((summary) => ({
+      ...summary,
+      contentBlockLabel: blockLabels.get(summary.progression.id) ?? 'Custom content',
+    }));
 
   const masteredProgressionCount = progressionSummaries.filter((summary) => summary.mastered).length;
   const contentBlockSummaries = CONTENT_BLOCKS.map((block) => {

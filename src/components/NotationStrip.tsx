@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Accidental, Formatter, Renderer, Stave, StaveNote, StaveTie, Voice } from 'vexflow';
+import { Accidental, Dot, Formatter, Renderer, Stave, StaveNote, StaveTie, Voice } from 'vexflow';
 import { getScaleOption } from '../content/scales';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import { octaveForSpellingAtMidi } from '../lib/theory/noteUtils';
@@ -8,6 +8,7 @@ import type { ExerciseMode, Phrase } from '../types/music';
 
 interface NotationStripProps {
   phrase: Phrase | null;
+  hasCompatiblePhrases: boolean;
   currentEventIndex: number;
   completedEventIds: Set<string>;
   clef: 'treble' | 'bass';
@@ -50,6 +51,14 @@ function durationFromBeats(durationBeats: number): string {
 
 function durationFromBeatsRest(durationBeats: number): string {
   return `${durationFromBeats(durationBeats)}r`;
+}
+
+function dotCountForBeats(durationBeats: number): number {
+  if (durationBeats === 3 || durationBeats === 1.5) {
+    return 1;
+  }
+
+  return 0;
 }
 
 function durationsForNotation(durationBeats: number): number[] {
@@ -174,6 +183,7 @@ function scaleDisplayForStep(phrase: Phrase, stepIndex: number): ScaleDisplay | 
 
 export function NotationStrip({
   phrase,
+  hasCompatiblePhrases,
   currentEventIndex,
   completedEventIds,
   clef,
@@ -321,14 +331,18 @@ export function NotationStrip({
         const gap = roundBeat(segment.startBeatInBar - cursor);
         if (gap > 0.0001) {
           durationsForNotation(gap).forEach((restDuration) => {
+            const staveNote = new StaveNote({
+              clef,
+              keys: [restKeyForClef(clef)],
+              duration: durationFromBeatsRest(restDuration),
+            });
+            if (dotCountForBeats(restDuration) > 0) {
+              Dot.buildAndAttach([staveNote], { all: true });
+            }
             renderedNotes.push({
               event: null,
               token: null,
-              staveNote: new StaveNote({
-                clef,
-                keys: [restKeyForClef(clef)],
-                duration: durationFromBeatsRest(restDuration),
-              }),
+              staveNote,
               eventColor: null,
               showChordLabel: false,
             });
@@ -355,6 +369,9 @@ export function NotationStrip({
             staveNote.addModifier(new Accidental(entry.accidental), index);
           }
         });
+        if (dotCountForBeats(segment.durationBeats) > 0) {
+          Dot.buildAndAttach([staveNote], { all: true });
+        }
 
         staveNote.setStyle({ fillStyle: segment.color, strokeStyle: segment.color });
 
@@ -382,14 +399,18 @@ export function NotationStrip({
       const tailRest = roundBeat(4 - cursor);
       if (tailRest > 0.0001) {
         durationsForNotation(tailRest).forEach((restDuration) => {
+          const staveNote = new StaveNote({
+            clef,
+            keys: [restKeyForClef(clef)],
+            duration: durationFromBeatsRest(restDuration),
+          });
+          if (dotCountForBeats(restDuration) > 0) {
+            Dot.buildAndAttach([staveNote], { all: true });
+          }
           renderedNotes.push({
             event: null,
             token: null,
-            staveNote: new StaveNote({
-              clef,
-              keys: [restKeyForClef(clef)],
-              duration: durationFromBeatsRest(restDuration),
-            }),
+            staveNote,
             eventColor: null,
             showChordLabel: false,
           });
@@ -418,7 +439,11 @@ export function NotationStrip({
   }, [phrase, currentEventIndex, completedEventIds, clef, exerciseMode, theme]);
 
   if (!phrase) {
-    return <div className="notation-strip empty">Phrase loading…</div>;
+    return (
+      <div className="notation-strip empty">
+        {hasCompatiblePhrases ? 'Phrase loading…' : 'No compatible phrases for the current settings.'}
+      </div>
+    );
   }
 
   return (

@@ -10,11 +10,21 @@ import { PianoView } from './PianoView';
 import { QwertyView } from './QwertyView';
 import { ThemeToggle } from './ThemeToggle';
 
+interface ExercisePickerItem {
+  id: string;
+  label: string;
+  subtitle: string;
+  masteryLabel: string;
+  detailLabel: string;
+  mastered: boolean;
+}
+
 interface PracticeLayoutProps {
   exerciseMode: ExerciseMode;
   curriculumLabel: string;
   practiceTrackingMode: 'test' | 'play';
   phrase: Phrase | null;
+  hasCompatiblePhrases: boolean;
   clef: 'treble' | 'bass';
   currentEventIndex: number;
   completedEventIds: Set<string>;
@@ -48,6 +58,17 @@ interface PracticeLayoutProps {
   onToggleCircleVisualizationMode: () => void;
   onToggleImmersiveMode: () => void;
   onToggleClef: () => void;
+  canStepCurriculum: boolean;
+  onStepCurriculumBackward: () => void;
+  onStepCurriculumForward: () => void;
+  canStepMode: boolean;
+  onStepModeBackward: () => void;
+  onStepModeForward: () => void;
+  canStepExercise: boolean;
+  exercisePickerItems: ExercisePickerItem[];
+  onSelectExercise: (progressionId: string) => void;
+  onStepExerciseBackward: () => void;
+  onStepExerciseForward: () => void;
   onStepKeyBackward: () => void;
   onStepKeyForward: () => void;
   onToggleMetronome: () => void;
@@ -232,11 +253,21 @@ function timingBucketLabel(bucket: EvaluationResult['timingBucket']): string {
   return 'Late';
 }
 
+function chordStatusLabel(evaluation: EvaluationResult | null): string {
+  if (!evaluation) {
+    return '—';
+  }
+
+  const hasNonTimingError = evaluation.errors.some((error) => error.code !== 'early' && error.code !== 'late');
+  return hasNonTimingError ? 'X' : '✓';
+}
+
 export function PracticeLayout({
   exerciseMode,
   curriculumLabel,
   practiceTrackingMode,
   phrase,
+  hasCompatiblePhrases,
   clef,
   currentEventIndex,
   completedEventIds,
@@ -270,6 +301,17 @@ export function PracticeLayout({
   onToggleCircleVisualizationMode,
   onToggleImmersiveMode,
   onToggleClef,
+  canStepCurriculum,
+  onStepCurriculumBackward,
+  onStepCurriculumForward,
+  canStepMode,
+  onStepModeBackward,
+  onStepModeForward,
+  canStepExercise,
+  exercisePickerItems,
+  onSelectExercise,
+  onStepExerciseBackward,
+  onStepExerciseForward,
   onStepKeyBackward,
   onStepKeyForward,
   onToggleMetronome,
@@ -288,12 +330,13 @@ export function PracticeLayout({
   const tonicLabel = phrase?.tonic ?? '—';
 
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
-  const chordLabel = latestEvaluation ? (latestEvaluation.success ? '✓' : 'X') : '—';
+  const chordLabel = chordStatusLabel(latestEvaluation);
   const chordHighlightColor = intervalColorForTonicAndRoot(phrase?.tonic ?? null, currentToken?.pitchClasses[0] ?? null);
   const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided';
   const showPerformanceStats = exerciseMode !== 'improvisation';
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
   const [showKeyboardGuide, setShowKeyboardGuide] = useState(false);
+  const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
   const midiWarning = inputMode === 'qwerty'
     ? 'QWERTY mode active · connect MIDI to switch'
     : (midiState.error ?? 'MIDI not detected');
@@ -307,6 +350,27 @@ export function PracticeLayout({
       setShowKeyboardGuide(false);
     }
   }, [exerciseMode, keyboardVisible]);
+
+  useEffect(() => {
+    if (!phrase || exercisePickerItems.length === 0) {
+      setExercisePickerOpen(false);
+    }
+  }, [exercisePickerItems.length, phrase]);
+
+  useEffect(() => {
+    if (!exercisePickerOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExercisePickerOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [exercisePickerOpen]);
 
   const commitTempoInput = () => {
     const trimmed = tempoInput.trim();
@@ -461,9 +525,41 @@ export function PracticeLayout({
         <div className="hud-primary-strip">
           <article className="hud-primary-cell hud-primary-exercise">
             <p className="hud-caption">Current Exercise</p>
-            <div className="hud-primary-value hud-primary-exercise-value">
-              <span>{progressionLabel}</span>
-              {progressionSubtitleLabel ? <small>{progressionSubtitleLabel}</small> : null}
+            <div className="hud-primary-exercise-row">
+              <button
+                type="button"
+                className="hud-key-step"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onStepExerciseBackward();
+                }}
+                disabled={!canStepExercise}
+                aria-label="Previous available exercise"
+              >
+                <span className="hud-key-step-glyph" aria-hidden="true">,</span>
+              </button>
+              <button
+                type="button"
+                className="hud-primary-value hud-primary-exercise-value hud-exercise-picker-trigger"
+                onClick={() => setExercisePickerOpen(true)}
+                disabled={!phrase || exercisePickerItems.length === 0}
+                aria-label="Choose current exercise"
+              >
+                <span>{progressionLabel}</span>
+                {progressionSubtitleLabel ? <small>{progressionSubtitleLabel}</small> : null}
+              </button>
+              <button
+                type="button"
+                className="hud-key-step"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onStepExerciseForward();
+                }}
+                disabled={!canStepExercise}
+                aria-label="Next available exercise"
+              >
+                <span className="hud-key-step-glyph" aria-hidden="true">.</span>
+              </button>
             </div>
           </article>
 
@@ -477,7 +573,7 @@ export function PracticeLayout({
                 disabled={!canStepKey}
                 aria-label="Previous available key on the circle of fifths"
               >
-                ←
+                <span className="hud-key-step-glyph" aria-hidden="true">&lt;</span>
               </button>
               <div className="hud-primary-value hud-primary-key-value">
                 <span>{tonicLabel}</span>
@@ -490,16 +586,58 @@ export function PracticeLayout({
                 disabled={!canStepKey}
                 aria-label="Next available key on the circle of fifths"
               >
-                →
+                <span className="hud-key-step-glyph" aria-hidden="true">&gt;</span>
               </button>
             </div>
           </article>
 
-          <article className="hud-primary-cell">
+          <article className="hud-primary-cell hud-primary-content">
             <p className="hud-caption">Content</p>
-            <div className="hud-primary-value hud-primary-exercise-value hud-primary-content-value">
-              <span>{curriculumLabel}</span>
-              <small>{modeLabel}</small>
+            <div className="hud-primary-content-row">
+              <div className="hud-primary-content-controls">
+                <button
+                  type="button"
+                  className="hud-key-step hud-key-step-stacked"
+                  onClick={onStepCurriculumBackward}
+                  disabled={!canStepCurriculum}
+                  aria-label="Previous curriculum preset"
+                >
+                  <span className="hud-key-step-glyph" aria-hidden="true">_</span>
+                </button>
+                <button
+                  type="button"
+                  className="hud-key-step hud-key-step-stacked"
+                  onClick={onStepModeBackward}
+                  disabled={!canStepMode}
+                  aria-label="Previous exercise mode"
+                >
+                  <span className="hud-key-step-glyph" aria-hidden="true">-</span>
+                </button>
+              </div>
+              <div className="hud-primary-value hud-primary-exercise-value hud-primary-content-value">
+                <span>{curriculumLabel}</span>
+                <small>{modeLabel}</small>
+              </div>
+              <div className="hud-primary-content-controls">
+                <button
+                  type="button"
+                  className="hud-key-step hud-key-step-stacked"
+                  onClick={onStepCurriculumForward}
+                  disabled={!canStepCurriculum}
+                  aria-label="Next curriculum preset"
+                >
+                  <span className="hud-key-step-glyph" aria-hidden="true">+</span>
+                </button>
+                <button
+                  type="button"
+                  className="hud-key-step hud-key-step-stacked"
+                  onClick={onStepModeForward}
+                  disabled={!canStepMode}
+                  aria-label="Next exercise mode"
+                >
+                  <span className="hud-key-step-glyph" aria-hidden="true">=</span>
+                </button>
+              </div>
             </div>
           </article>
         </div>
@@ -526,10 +664,64 @@ export function PracticeLayout({
         ) : null}
       </section>
 
+      {exercisePickerOpen ? (
+        <div className="exercise-picker-overlay" role="presentation" onClick={() => setExercisePickerOpen(false)}>
+          <section
+            className="exercise-picker-window"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose exercise"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="exercise-picker-header">
+              <div>
+                <p className="eyebrow">Current Filter</p>
+                <h3>Choose a progression</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button settings-close"
+                onClick={() => setExercisePickerOpen(false)}
+                aria-label="Close exercise picker"
+              >
+                ×
+              </button>
+            </div>
+            <div className="exercise-picker-list">
+              {exercisePickerItems.map((item) => {
+                const selected = phrase?.progressionId === item.id;
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`exercise-picker-pill ${selected ? 'selected' : ''} ${item.mastered ? 'mastered' : ''}`.trim()}
+                    onClick={() => {
+                      onSelectExercise(item.id);
+                      setExercisePickerOpen(false);
+                    }}
+                  >
+                    <span className="exercise-picker-pill-copy">
+                      <strong>{item.label}</strong>
+                      <span>{item.subtitle}</span>
+                    </span>
+                    <span className="exercise-picker-pill-meta">
+                      <strong>{item.masteryLabel}</strong>
+                      <span>{item.detailLabel}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       <div className="practice-workstack">
         <div className="practice-notation-slot">
           <NotationStrip
             phrase={phrase}
+            hasCompatiblePhrases={hasCompatiblePhrases}
             clef={clef}
             exerciseMode={exerciseMode}
             currentEventIndex={currentEventIndex}

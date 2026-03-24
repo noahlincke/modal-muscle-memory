@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { applyCurriculumPreset, curriculumPresetIdForLane } from '../../content/curriculum';
 import { rootsForKeySet } from '../../content/keys';
-import { countMatchingProgressions, generatePhrase } from './phraseGenerator';
+import {
+  countMatchingProgressions,
+  countPotentialProgressions,
+  generatePhrase,
+  listPotentialPhraseVariants,
+  playableProgressionIds,
+} from './phraseGenerator';
 import { createDefaultProgressState } from '../storage/progressStore';
 
 function seededRandom(seed = 42): () => number {
@@ -13,6 +19,39 @@ function seededRandom(seed = 42): () => number {
 }
 
 describe('phraseGenerator', () => {
+  it('can generate guide-tone preset phrases with guide-tone and rootless families', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'guide_tone_foundations');
+    progress.unlocksByLane.ionian.voicings = [
+      'guide_tone_37',
+      'guide_tone_73',
+      'rootless_379',
+      'rootless_7313',
+      'shell_137',
+    ];
+
+    const phrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(5),
+    });
+
+    expect([
+      'guide_tone_37',
+      'guide_tone_73',
+      'rootless_379',
+      'rootless_7313',
+    ]).toContain(phrase.tokensById[phrase.events[0].chordTokenId].voicingFamily);
+    expect([
+      'guide_tone_ii_v_i',
+      'guide_tone_turnaround_cycle',
+      'guide_tone_circle_fragment',
+      'guide_tone_rootless_resolution',
+      'guide_tone_rootless_circle',
+    ]).toContain(phrase.progressionId);
+  });
+
   it('generates valid phrases with linked tokens', () => {
     const progress = createDefaultProgressState();
     const random = seededRandom(11);
@@ -124,6 +163,20 @@ describe('phraseGenerator', () => {
     progress.exerciseConfig.enabledScaleFamilyIds = [];
 
     expect(countMatchingProgressions(progress.exerciseConfig)).toBe(0);
+  });
+
+  it('counts unique progressions without multiplying rhythm variants', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.voicingPracticeMode = 'custom';
+    progress.exerciseConfig.selectedVoicings = ['shell_137'];
+
+    const allRhythmVariants = listPotentialPhraseVariants(progress);
+    const allRhythmCount = countPotentialProgressions(progress);
+
+    progress.exerciseConfig.rhythm = ['charleston', 'quarters'];
+
+    expect(countPotentialProgressions(progress)).toBe(allRhythmCount);
+    expect(listPotentialPhraseVariants(progress)).toEqual(allRhythmVariants);
   });
 
   it('can mix multiple rhythm filters in guided mode', () => {
@@ -498,5 +551,43 @@ describe('phraseGenerator', () => {
 
     expect(nextPhrase.progressionId).toBe(weakerPhrase.progressionId);
     expect(nextPhrase.tonic).toBe(weakerPhrase.tonic);
+  });
+
+  it('lets custom voicings apply beyond the progression recommendation tags', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'modal_colors');
+    progress.exerciseConfig.voicingPracticeMode = 'custom';
+    progress.exerciseConfig.selectedVoicings = ['inversion_1'];
+    progress.unlocksByLane.dorian.roots = ['D'];
+    progress.unlocksByLane.dorian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
+    progress.unlocksByLane.mixolydian.roots = ['G'];
+    progress.unlocksByLane.mixolydian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
+    progress.unlocksByLane.lydian.roots = ['F'];
+    progress.unlocksByLane.lydian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
+    progress.unlocksByLane.phrygian.roots = ['E'];
+    progress.unlocksByLane.phrygian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
+
+    const ids = playableProgressionIds(progress.exerciseConfig, progress);
+
+    expect(ids).toContain('dorian_modal_pivot');
+    expect(ids).toContain('phrygian_pedal_turn');
+  });
+
+  it('can generate full-library custom phrases with six-nine voicings', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'full_library');
+    progress.exerciseConfig.voicingPracticeMode = 'custom';
+    progress.exerciseConfig.selectedVoicings = ['six_nine'];
+
+    const phrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(303),
+    });
+
+    const firstToken = phrase.tokensById[phrase.events[0].chordTokenId];
+
+    expect(firstToken.voicingFamily).toBe('six_nine');
   });
 });

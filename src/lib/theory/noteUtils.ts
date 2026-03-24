@@ -81,12 +81,8 @@ export function normalizePitchClass(noteLike: string): string {
 }
 
 export function pitchClassToSemitone(noteLike: string): number {
-  const normalized = normalizePitchClass(noteLike);
-  const index = SHARP_CHROMATIC.indexOf(normalized as (typeof SHARP_CHROMATIC)[number]);
-  if (index === -1) {
-    throw new Error(`Unknown pitch class: ${noteLike}`);
-  }
-  return index;
+  const { letter, accidental } = parseSpelling(noteLike);
+  return ((NATURAL_SEMITONES[letter] + accidental) % 12 + 12) % 12;
 }
 
 export function semitoneToPitchClass(semitone: number): string {

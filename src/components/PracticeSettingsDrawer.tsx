@@ -7,7 +7,13 @@ import {
   PROGRESSION_FAMILY_OPTIONS,
   SCALE_FAMILY_OPTIONS,
 } from '../content/curriculum';
-import { countMatchingProgressions, matchingProgressionIds } from '../lib/engine/phraseGenerator';
+import {
+  activeVoicingFamiliesForPractice,
+  countMatchingProgressions,
+  type PotentialPhraseVariant,
+} from '../lib/engine/phraseGenerator';
+import { progressionRomanSummary, progressionSubtitle } from '../lib/progressionLabels';
+import { orderedVoicingFamilies, VOICING_FAMILY_LABELS, VOICING_FAMILIES_IN_ORDER } from '../lib/voicingFamilies';
 import type {
   ContentBlockId,
   CurriculumPresetId,
@@ -15,13 +21,15 @@ import type {
   ProgressionFamilyTag,
   RhythmFilterId,
   ScaleFamilyId,
+  VoicingFamily,
 } from '../types/music';
 import type { ExerciseConfig, ProgressState } from '../types/progress';
 
 interface PracticeSettingsDrawerProps {
   progress: ProgressState;
   inputMode: 'midi' | 'qwerty';
-  potentialPhraseCount: number;
+  potentialProgressionCount: number;
+  potentialPhraseVariants: PotentialPhraseVariant[];
   authConfigured: boolean;
   authEmail: string | null;
   authStatusText: string | null;
@@ -43,6 +51,8 @@ interface PracticeSettingsDrawerProps {
     mode: ProgressState['exerciseConfig']['improvisationAdvanceMode'],
   ) => void;
   onSetChainMovement: (chainMovement: number) => void;
+  onSelectVoicingPracticeMode: (mode: ProgressState['exerciseConfig']['voicingPracticeMode']) => void;
+  onToggleSelectedVoicing: (voicingFamily: VoicingFamily) => void;
   onToggleContentBlock: (contentBlockId: ContentBlockId) => void;
   onToggleScaleFamily: (scaleFamilyId: ScaleFamilyId) => void;
   onToggleProgressionFamily: (progressionFamilyTag: ProgressionFamilyTag) => void;
@@ -80,7 +90,8 @@ function PersonIcon() {
 export function PracticeSettingsDrawer({
   progress,
   inputMode,
-  potentialPhraseCount,
+  potentialProgressionCount,
+  potentialPhraseVariants,
   authConfigured,
   authEmail,
   authStatusText,
@@ -98,6 +109,8 @@ export function PracticeSettingsDrawer({
   onSelectImprovisationProgressionMode,
   onSelectImprovisationAdvanceMode,
   onSetChainMovement,
+  onSelectVoicingPracticeMode,
+  onToggleSelectedVoicing,
   onToggleContentBlock,
   onToggleScaleFamily,
   onToggleProgressionFamily,
@@ -105,16 +118,40 @@ export function PracticeSettingsDrawer({
   onToggleKeyboardFriendlyVoicings,
 }: PracticeSettingsDrawerProps) {
   const [emailInput, setEmailInput] = useState('');
+  const [potentialDetailsOpen, setPotentialDetailsOpen] = useState(false);
   const isImprovisationMode = progress.exerciseConfig.mode === 'improvisation';
   const config = progress.exerciseConfig;
   const selectedKeySet = KEY_SET_OPTIONS.find((option) => option.id === progress.exerciseConfig.keySet) ?? null;
+  const activeAutoVoicings = useMemo(
+    () => activeVoicingFamiliesForPractice(progress),
+    [progress],
+  );
+  const selectedCustomVoicings = useMemo(
+    () => orderedVoicingFamilies(config.selectedVoicings),
+    [config.selectedVoicings],
+  );
+  const potentialProgressionGroups = useMemo(() => {
+    const grouped = new Map<string, { progression: PotentialPhraseVariant['progression']; phrases: PotentialPhraseVariant[] }>();
+
+    potentialPhraseVariants.forEach((variant) => {
+      const existing = grouped.get(variant.progression.id);
+      if (existing) {
+        existing.phrases.push(variant);
+        return;
+      }
+
+      grouped.set(variant.progression.id, {
+        progression: variant.progression,
+        phrases: [variant],
+      });
+    });
+
+    return [...grouped.values()];
+  }, [potentialPhraseVariants]);
   const optionAvailability = useMemo(() => {
     const withConfig = (nextConfig: ExerciseConfig): boolean => countMatchingProgressions(nextConfig) > 0;
-    const currentMatches = new Set(matchingProgressionIds(config));
     const toggleArrayItem = <T extends string>(items: T[], item: T): T[] =>
       (items.includes(item) ? items.filter((value) => value !== item) : [...items, item]);
-    const addsNewProgressions = (nextConfig: ExerciseConfig): boolean =>
-      matchingProgressionIds(nextConfig).some((id) => !currentMatches.has(id));
 
     return {
       presets: Object.fromEntries(CURRICULUM_PRESETS.map((preset) => [
@@ -127,46 +164,21 @@ export function PracticeSettingsDrawer({
       ])),
       contentBlocks: Object.fromEntries(CONTENT_BLOCKS.map((block) => [
         block.id,
-        config.enabledContentBlockIds.includes(block.id)
-          ? withConfig({ ...config, enabledContentBlockIds: toggleArrayItem(config.enabledContentBlockIds, block.id) })
-          : (() => {
-            const nextConfig = {
-              ...config,
-              enabledContentBlockIds: toggleArrayItem(config.enabledContentBlockIds, block.id),
-            };
-            return withConfig(nextConfig) && addsNewProgressions(nextConfig);
-          })(),
+        withConfig({ ...config, enabledContentBlockIds: toggleArrayItem(config.enabledContentBlockIds, block.id) }),
       ])),
       scaleFamilies: Object.fromEntries(SCALE_FAMILY_OPTIONS.map((family) => [
         family.id,
-        config.enabledScaleFamilyIds.includes(family.id)
-          ? withConfig({ ...config, enabledScaleFamilyIds: toggleArrayItem(config.enabledScaleFamilyIds, family.id) })
-          : (() => {
-            const nextConfig = {
-              ...config,
-              enabledScaleFamilyIds: toggleArrayItem(config.enabledScaleFamilyIds, family.id),
-            };
-            return withConfig(nextConfig) && addsNewProgressions(nextConfig);
-          })(),
+        withConfig({ ...config, enabledScaleFamilyIds: toggleArrayItem(config.enabledScaleFamilyIds, family.id) }),
       ])),
       progressionFamilies: Object.fromEntries(PROGRESSION_FAMILY_OPTIONS.map((family) => [
         family.id,
-        config.enabledProgressionFamilyTags.includes(family.id)
-          ? withConfig({
-            ...config,
-            enabledProgressionFamilyTags: toggleArrayItem(config.enabledProgressionFamilyTags, family.id),
-          })
-          : (() => {
-            const nextConfig = {
-              ...config,
-              enabledProgressionFamilyTags: toggleArrayItem(config.enabledProgressionFamilyTags, family.id),
-            };
-            return withConfig(nextConfig) && addsNewProgressions(nextConfig);
-          })(),
+        withConfig({
+          ...config,
+          enabledProgressionFamilyTags: toggleArrayItem(config.enabledProgressionFamilyTags, family.id),
+        }),
       ])),
     };
   }, [config]);
-
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
       <aside
@@ -376,10 +388,52 @@ export function PracticeSettingsDrawer({
           </section>
         )}
 
-        <div className="settings-micro-meta">
-          <span className="settings-meta-label">Potential phrases</span>
-          <strong>{potentialPhraseCount.toLocaleString()}</strong>
-        </div>
+        <section className={`settings-micro-meta-card ${potentialDetailsOpen ? 'expanded' : ''}`.trim()}>
+          <button
+            type="button"
+            className="settings-micro-meta"
+            onClick={() => setPotentialDetailsOpen((open) => !open)}
+            aria-expanded={potentialDetailsOpen}
+            disabled={potentialPhraseVariants.length === 0}
+          >
+            <span className="settings-micro-meta-copy">
+              <span className="settings-meta-label">Potential progressions</span>
+              <strong>{potentialProgressionCount.toLocaleString()}</strong>
+            </span>
+            <span className="settings-micro-meta-action">
+              {potentialPhraseVariants.length === 0
+                ? 'No phrases'
+                : potentialDetailsOpen
+                  ? 'Hide phrases'
+                  : `Show ${potentialPhraseVariants.length.toLocaleString()} phrases`}
+            </span>
+          </button>
+          {potentialDetailsOpen ? (
+            <div className="settings-potential-details">
+              <p className="settings-meta">Grouped by progression. Rhythm variants are not counted separately.</p>
+              <div className="settings-potential-group-list">
+                {potentialProgressionGroups.map((group) => (
+                  <section key={group.progression.id} className="settings-potential-group">
+                    <div className="settings-potential-group-copy">
+                      <strong>{progressionRomanSummary(group.progression)}</strong>
+                      <span>{progressionSubtitle(group.progression.id)}</span>
+                    </div>
+                    <div className="settings-potential-phrase-list">
+                      {group.phrases.map((variant) => (
+                        <span
+                          key={`${variant.progression.id}:${variant.tonic}:${variant.voicingFamily}`}
+                          className="settings-potential-phrase"
+                        >
+                          {variant.tonic} · {VOICING_FAMILY_LABELS[variant.voicingFamily]}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
 
         <section className="settings-section">
           <div className="settings-section-copy">
@@ -402,6 +456,58 @@ export function PracticeSettingsDrawer({
               );
             })}
           </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-copy">
+            <h3>Voicing Focus</h3>
+            <p>Auto follows the assistive progression. Custom gives direct control over the voicing families in rotation.</p>
+          </div>
+          <div className="settings-pill-row">
+            <button
+              type="button"
+              className={`settings-pill ${config.voicingPracticeMode === 'auto' ? 'active' : ''}`.trim()}
+              onClick={() => onSelectVoicingPracticeMode('auto')}
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              className={`settings-pill ${config.voicingPracticeMode === 'custom' ? 'active' : ''}`.trim()}
+              onClick={() => onSelectVoicingPracticeMode('custom')}
+            >
+              Custom
+            </button>
+          </div>
+          <p className="settings-meta">
+            {config.voicingPracticeMode === 'auto'
+              ? `Currently active pool: ${activeAutoVoicings.length > 0
+                ? activeAutoVoicings.map((voicing) => VOICING_FAMILY_LABELS[voicing]).join(', ')
+                : 'No compatible voicings for the current content.'}`
+              : `Custom set: ${selectedCustomVoicings.map((voicing) => VOICING_FAMILY_LABELS[voicing]).join(', ')}`}
+          </p>
+          {config.voicingPracticeMode === 'custom' ? (
+            <div className="settings-pill-row">
+              {VOICING_FAMILIES_IN_ORDER.map((voicingFamily) => {
+                const selected = selectedCustomVoicings.includes(voicingFamily);
+
+                return (
+                  <button
+                    key={voicingFamily}
+                    type="button"
+                    className={`settings-pill ${selected ? 'active' : ''}`.trim()}
+                    onClick={() => onToggleSelectedVoicing(voicingFamily)}
+                    title={VOICING_FAMILY_LABELS[voicingFamily]}
+                  >
+                    {VOICING_FAMILY_LABELS[voicingFamily]}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {config.voicingPracticeMode === 'custom' && potentialProgressionCount === 0 ? (
+            <p className="settings-meta">No compatible progressions for the current custom voicing set with these content filters.</p>
+          ) : null}
         </section>
 
         <section className="settings-section">
@@ -499,23 +605,28 @@ export function PracticeSettingsDrawer({
               type="button"
               className={`settings-toggle-card ${progress.settings.keyboardFriendlyVoicings ? 'active' : ''}`.trim()}
               disabled={inputMode === 'midi'}
+              aria-pressed={progress.settings.keyboardFriendlyVoicings}
               onClick={onToggleKeyboardFriendlyVoicings}
             >
-              <strong>Keyboard Friendly</strong>
+              <div className="settings-toggle-head">
+                <strong>Keyboard Friendly</strong>
+                <span className="settings-toggle-state">{progress.settings.keyboardFriendlyVoicings ? 'On' : 'Off'}</span>
+              </div>
               <span>{inputMode === 'qwerty'
-                ? 'Keep generated voicings inside the qwerty range from C to G.'
-                : 'Disconnect MIDI to enable qwerty-range voicings.'}</span>
+                ? 'Constrain generated voicings to the qwerty range.'
+                : 'Available when MIDI is disconnected.'}</span>
             </button>
             <button
               type="button"
-              className={`settings-toggle-card ${progress.settings.enableComputerKeyboardAudio && inputMode === 'qwerty' ? 'active' : ''}`.trim()}
-              disabled={inputMode !== 'qwerty'}
+              className={`settings-toggle-card ${progress.settings.enableComputerKeyboardAudio ? 'active' : ''}`.trim()}
+              aria-pressed={progress.settings.enableComputerKeyboardAudio}
               onClick={onToggleComputerKeyboardAudio}
             >
-              <strong>Computer Audio</strong>
-              <span>{inputMode === 'qwerty'
-                ? 'Play keyboard notes through the same voice used by reference playback.'
-                : 'Disconnect MIDI to enable computer-keyboard audio.'}</span>
+              <div className="settings-toggle-head">
+                <strong>Computer Audio</strong>
+                <span className="settings-toggle-state">{progress.settings.enableComputerKeyboardAudio ? 'On' : 'Off'}</span>
+              </div>
+              <span>Play incoming notes through the laptop or desktop speakers, even when using MIDI input.</span>
             </button>
           </div>
         </section>

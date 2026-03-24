@@ -37,6 +37,8 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.improvisationProgressionMode).toBe('chained');
     expect(loaded.exerciseConfig.improvisationAdvanceMode).toBe('footpedal_release');
     expect(loaded.exerciseConfig.chainMovement).toBe(72);
+    expect(loaded.exerciseConfig.voicingPracticeMode).toBe('auto');
+    expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.settings.enableComputerKeyboardAudio).toBe(false);
     expect(loaded.settings.keyboardFriendlyVoicings).toBe(false);
@@ -84,11 +86,14 @@ describe('progressStore', () => {
     const loaded = loadProgressState();
 
     expect(loaded.unlocksByLane.ionian.unlockedPackIds.length).toBeGreaterThan(0);
+    expect(loaded.unlocksByLane.ionian.voicings).toEqual(['guide_tone_37', 'guide_tone_73', 'shell_137', 'closed_7th']);
     expect(loaded.exerciseConfig.curriculumPresetId).toBe('major_foundations');
     expect(loaded.exerciseConfig.guidedFlowMode).toBe('musical_chaining');
     expect(loaded.exerciseConfig.improvisationProgressionMode).toBe('chained');
     expect(loaded.exerciseConfig.improvisationAdvanceMode).toBe('footpedal_release');
     expect(loaded.exerciseConfig.chainMovement).toBe(100);
+    expect(loaded.exerciseConfig.voicingPracticeMode).toBe('auto');
+    expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.settings.enableComputerKeyboardAudio).toBe(true);
     expect(loaded.settings.keyboardFriendlyVoicings).toBe(true);
@@ -200,6 +205,37 @@ describe('progressStore', () => {
     const loaded = loadProgressState();
 
     expect(loaded.exerciseConfig.rhythm).toEqual(['all']);
+  });
+
+  it('drops invalid saved voicing ids and custom selections', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        exerciseConfig: {
+          mode: 'guided',
+          curriculumPresetId: 'major_foundations',
+          lane: 'ionian',
+          rhythm: ['all'],
+          voicingPracticeMode: 'custom',
+          selectedVoicings: ['shell_137', 'not_a_voicing', 'guide_tone_37', 'rootless_379', 'six_nine'],
+        },
+        unlocksByLane: {
+          ionian: {
+            roots: ['C'],
+            modes: ['ionian'],
+            voicings: ['shell_137', 'not_a_voicing'],
+            rhythms: ['block_whole'],
+            borrowedDepth: 0,
+            unlockedPackIds: [],
+          },
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.unlocksByLane.ionian.voicings).toEqual(['guide_tone_37', 'guide_tone_73', 'shell_137', 'closed_7th']);
+    expect(loaded.exerciseConfig.selectedVoicings).toEqual(['guide_tone_37', 'shell_137', 'rootless_379', 'six_nine']);
   });
 
   it('merges adjacent phrase completions into a single practice block', () => {

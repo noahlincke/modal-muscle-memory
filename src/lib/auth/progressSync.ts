@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProgressState } from '../../types/progress';
+import { normalizeProgressState } from '../storage/progressStore';
 
 interface UserProgressRow {
   user_id: string;
@@ -21,7 +22,7 @@ export async function loadRemoteProgress(
     throw error;
   }
 
-  return data?.progress_json ?? null;
+  return data?.progress_json ? normalizeProgressState(data.progress_json) : null;
 }
 
 export async function saveRemoteProgress(
@@ -33,7 +34,7 @@ export async function saveRemoteProgress(
     .from('user_progress')
     .upsert({
       user_id: userId,
-      progress_json: progress,
+      progress_json: normalizeProgressState(progress),
       updated_at: new Date().toISOString(),
     }, {
       onConflict: 'user_id',
