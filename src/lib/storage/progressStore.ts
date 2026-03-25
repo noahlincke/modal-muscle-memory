@@ -9,7 +9,7 @@ import {
   resolveLaneFromCurriculumPresetId,
 } from '../../content/curriculum';
 import { getPackForLane } from '../../content/packs';
-import type { ModeLane, RhythmCellId, RhythmSelection } from '../../types/music';
+import type { ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
 import type {
   AttemptRecord,
   ExerciseConfig,
@@ -18,9 +18,10 @@ import type {
   UnlockState,
   UserSettings,
 } from '../../types/progress';
+import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
@@ -40,6 +41,7 @@ const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'floating_2and',
 ];
 const SPECIFIC_RHYTHM_IDS: RhythmCellId[] = RHYTHM_FILTER_IDS.filter((id): id is RhythmCellId => id !== 'all');
+const VALID_VOICINGS = new Set<VoicingFamily>(VOICING_FAMILIES_IN_ORDER);
 
 const ALL_LANES: ModeLane[] = [
   'ionian',
@@ -61,6 +63,8 @@ function defaultExerciseConfig(): ExerciseConfig {
     enabledProgressionFamilyTags: [],
     keySet: 'max_2_accidentals',
     rhythm: ['all'],
+    voicingPracticeMode: 'auto',
+    selectedVoicings: [],
     guidedFlowMode: 'targeting_improvement',
     improvisationProgressionMode: 'chained',
     improvisationAdvanceMode: 'immediate',
@@ -102,6 +106,20 @@ function normalizeChainMovement(value: number | undefined): number {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
+function normalizeVoicingPracticeMode(value: unknown): ExerciseConfig['voicingPracticeMode'] {
+  return value === 'custom' ? 'custom' : 'auto';
+}
+
+function normalizeSelectedVoicings(value: unknown): VoicingFamily[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return orderedVoicingFamilies(
+    value.filter((item): item is VoicingFamily => VALID_VOICINGS.has(item as VoicingFamily)),
+  );
+}
+
 function defaultSettings(): UserSettings {
   return {
     tempo: 78,
@@ -140,7 +158,7 @@ function createUnlockState(
 
 function defaultUnlocks(): Record<ModeLane, UnlockState> {
   return {
-    ionian: createUnlockState('ionian', ['C'], ['shell_137', 'closed_7th']),
+    ionian: createUnlockState('ionian', ['C'], ['guide_tone_37', 'guide_tone_73', 'shell_137', 'closed_7th']),
     aeolian: createUnlockState('aeolian', ['A'], ['shell_137', 'closed_7th']),
     ionian_aeolian_mixture: createUnlockState('ionian_aeolian_mixture', ['C'], ['shell_137']),
     dorian: createUnlockState('dorian', [], []),
@@ -171,21 +189,30 @@ function mergeUnlockState(
   const fallback = defaultUnlocks()[lane];
   const pack = getPackForLane(lane);
   const packIds = new Set([...(incoming?.unlockedPackIds ?? []), ...(fallback.unlockedPackIds ?? [])]);
+  const normalizedModes = [...new Set(
+    [...fallback.modes, ...(incoming?.modes ?? [])].filter((mode): mode is ModeLane => ALL_LANES.includes(mode as ModeLane)),
+  )];
+  const normalizedVoicings = orderedVoicingFamilies(
+    [...fallback.voicings, ...(incoming?.voicings ?? [])].filter((voicing): voicing is VoicingFamily => VALID_VOICINGS.has(voicing as VoicingFamily)),
+  );
+  const normalizedRhythms = [...new Set(
+    [...fallback.rhythms, ...(incoming?.rhythms ?? [])].filter((rhythm): rhythm is RhythmCellId => SPECIFIC_RHYTHM_IDS.includes(rhythm as RhythmCellId)),
+  )];
   if (pack) {
     packIds.add(pack.id);
   }
 
   return {
-    roots: [...new Set(incoming?.roots ?? fallback.roots)],
-    modes: incoming?.modes?.length ? incoming.modes : fallback.modes,
-    voicings: [...new Set(incoming?.voicings ?? fallback.voicings)],
-    rhythms: [...new Set(incoming?.rhythms ?? fallback.rhythms)],
+    roots: [...new Set([...fallback.roots, ...(incoming?.roots ?? [])].filter((root): root is string => typeof root === 'string' && root.length > 0))],
+    modes: normalizedModes.length > 0 ? normalizedModes : fallback.modes,
+    voicings: normalizedVoicings.length > 0 ? normalizedVoicings : fallback.voicings,
+    rhythms: normalizedRhythms.length > 0 ? normalizedRhythms : fallback.rhythms,
     borrowedDepth: incoming?.borrowedDepth ?? fallback.borrowedDepth,
     unlockedPackIds: [...packIds],
   };
 }
 
-function mergeProgress(raw: Partial<ProgressState>): ProgressState {
+export function normalizeProgressState(raw: Partial<ProgressState>): ProgressState {
   const defaults = createDefaultProgressState();
   const inferredPresetId = raw.exerciseConfig?.curriculumPresetId
     ?? curriculumPresetIdForLane(raw.exerciseConfig?.lane ?? defaults.exerciseConfig.lane);
@@ -219,6 +246,8 @@ function mergeProgress(raw: Partial<ProgressState>): ProgressState {
       ),
       keySet: normalizeKeySetId(raw.exerciseConfig?.keySet, presetDefaults.keySet),
       rhythm: normalizeRhythmSelection(raw.exerciseConfig?.rhythm),
+      voicingPracticeMode: normalizeVoicingPracticeMode(raw.exerciseConfig?.voicingPracticeMode),
+      selectedVoicings: normalizeSelectedVoicings(raw.exerciseConfig?.selectedVoicings),
       guidedFlowMode: raw.exerciseConfig?.guidedFlowMode ?? presetDefaults.guidedFlowMode,
       improvisationAdvanceMode: normalizeImprovisationAdvanceMode(raw.exerciseConfig?.improvisationAdvanceMode),
       chainMovement: normalizeChainMovement(raw.exerciseConfig?.chainMovement),
@@ -248,7 +277,7 @@ export function loadProgressState(): ProgressState {
 
   try {
     const parsed = JSON.parse(raw) as Partial<ProgressState>;
-    return mergeProgress(parsed);
+    return normalizeProgressState(parsed);
   } catch {
     return createDefaultProgressState();
   }
@@ -259,7 +288,7 @@ export function saveProgressState(progress: ProgressState): void {
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(mergeProgress(progress)));
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeProgressState(progress)));
 }
 
 export function resetProgressState(): ProgressState {

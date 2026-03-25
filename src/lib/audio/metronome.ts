@@ -1,5 +1,28 @@
 import { loadTone } from './toneLoader';
 
+const QUARTER_NOTE_EPSILON = 0.0001;
+export const METRONOME_START_DELAY_SECONDS = 0.01;
+
+interface MetronomeStartOptions {
+  beatOffsetBeats?: number;
+  onBeat?: (beatIndex: number) => void;
+}
+
+export function metronomePhaseForBeatOffset(beatOffsetBeats = 0): {
+  nextQuarterIndex: number;
+  startDelayBeats: number;
+} {
+  const safeOffset = Number.isFinite(beatOffsetBeats) ? Math.max(0, beatOffsetBeats) : 0;
+  const nearestQuarter = Math.round(safeOffset);
+  const startsOnQuarter = Math.abs(safeOffset - nearestQuarter) < QUARTER_NOTE_EPSILON;
+  const nextQuarterIndex = startsOnQuarter ? nearestQuarter : Math.floor(safeOffset) + 1;
+
+  return {
+    nextQuarterIndex,
+    startDelayBeats: startsOnQuarter ? 0 : nextQuarterIndex - safeOffset,
+  };
+}
+
 export class Metronome {
   private synth: import('tone').MembraneSynth | null = null;
 
@@ -65,11 +88,11 @@ export class Metronome {
         }
       }, '4n');
 
-      Tone.Transport.start('+0.01');
+      Tone.Transport.start(`+${METRONOME_START_DELAY_SECONDS}`);
     });
   }
 
-  async start(tempo: number, onBeat?: (beatIndex: number) => void): Promise<void> {
+  async start(tempo: number, options: MetronomeStartOptions = {}): Promise<void> {
     await this.prepare();
     const Tone = this.tone;
     if (!Tone) {
@@ -80,14 +103,15 @@ export class Metronome {
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = tempo;
 
-    let beat = 0;
+    const { nextQuarterIndex, startDelayBeats } = metronomePhaseForBeatOffset(options.beatOffsetBeats);
+    let quarterIndex = nextQuarterIndex;
     this.repeatId = Tone.Transport.scheduleRepeat((time) => {
-      beat += 1;
-      this.synth?.triggerAttackRelease(beat % 4 === 1 ? 'C4' : 'C3', '16n', time);
-      onBeat?.(beat);
-    }, '4n');
+      this.synth?.triggerAttackRelease(quarterIndex % 4 === 0 ? 'C4' : 'C3', '16n', time);
+      options.onBeat?.(quarterIndex + 1);
+      quarterIndex += 1;
+    }, '4n', (startDelayBeats * 60) / tempo);
 
-    Tone.Transport.start('+0.01');
+    Tone.Transport.start(`+${METRONOME_START_DELAY_SECONDS}`);
   }
 
   setTempo(tempo: number): void {

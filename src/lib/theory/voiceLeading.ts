@@ -5,6 +5,7 @@ interface VoiceLeadingInput {
   midiRange: { min: number; max: number };
   prevVoicing?: number[];
   maxMotionSemitones: number;
+  maxSpanSemitones?: number;
 }
 
 function nearestCandidate(
@@ -33,11 +34,53 @@ function totalMotion(current: number[], previous: number[]): number {
   return total;
 }
 
+function totalSpan(notes: number[]): number {
+  if (notes.length < 2) {
+    return 0;
+  }
+
+  return notes[notes.length - 1] - notes[0];
+}
+
+function compactSpan(
+  notes: number[],
+  midiRange: { min: number; max: number },
+  maxSpanSemitones: number,
+): number[] {
+  if (notes.length < 2 || totalSpan(notes) <= maxSpanSemitones) {
+    return notes;
+  }
+
+  const compacted = [...notes];
+  let changed = true;
+
+  while (totalSpan(compacted) > maxSpanSemitones && changed) {
+    changed = false;
+
+    for (let index = compacted.length - 1; index > 0; index -= 1) {
+      const shiftedDown = compacted[index] - 12;
+      if (shiftedDown < midiRange.min || shiftedDown <= compacted[index - 1]) {
+        continue;
+      }
+
+      compacted[index] = shiftedDown;
+      changed = true;
+
+      if (totalSpan(compacted) <= maxSpanSemitones) {
+        break;
+      }
+    }
+  }
+
+  return compacted;
+}
+
 export function solveVoiceLeading({
   orderedPitchClasses,
   midiRange,
   prevVoicing,
   maxMotionSemitones,
+  maxSpanSemitones,
 }: VoiceLeadingInput): number[] {
   const center = (midiRange.min + midiRange.max) / 2;
   let last = midiRange.min - 1;
@@ -66,13 +109,19 @@ export function solveVoiceLeading({
       const upMotion = shiftedUp.length === chosen.length ? totalMotion(shiftedUp, prevVoicing) : Number.POSITIVE_INFINITY;
 
       if (downMotion < currentMotion && downMotion <= upMotion) {
-        return shiftedDown;
+        return typeof maxSpanSemitones === 'number'
+          ? compactSpan(shiftedDown, midiRange, maxSpanSemitones)
+          : shiftedDown;
       }
       if (upMotion < currentMotion && upMotion < downMotion) {
-        return shiftedUp;
+        return typeof maxSpanSemitones === 'number'
+          ? compactSpan(shiftedUp, midiRange, maxSpanSemitones)
+          : shiftedUp;
       }
     }
   }
 
-  return chosen;
+  return typeof maxSpanSemitones === 'number'
+    ? compactSpan(chosen, midiRange, maxSpanSemitones)
+    : chosen;
 }

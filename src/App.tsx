@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import {
   applyCurriculumPreset,
+  CURRICULUM_PRESETS,
   getCurriculumPreset,
 } from './content/curriculum';
 import { nextRootOnCircle, rootsForKeySet } from './content/keys';
@@ -12,7 +13,13 @@ import { Metronome } from './lib/audio/metronome';
 import { PreviewPlayback } from './lib/audio/previewPlayback';
 import { evaluateAttempt } from './lib/engine/evaluator';
 import { evaluateImprovisationAttempt } from './lib/engine/improvisationEvaluator';
-import { countMatchingProgressions, countPotentialStarterPhrases, generatePhrase } from './lib/engine/phraseGenerator';
+import {
+  activeVoicingFamiliesForPractice,
+  countPotentialProgressions,
+  generatePhrase,
+  listPotentialPhraseVariants,
+  playableProgressionIds,
+} from './lib/engine/phraseGenerator';
 import { applyMasteryUpdate } from './lib/engine/mastery';
 import { applyUnlockDecision } from './lib/engine/unlocks';
 import { createMidiFallbackState, MidiAccessController, type MidiConnectionState } from './lib/midi/midiAccess';
@@ -30,23 +37,34 @@ import {
 } from './lib/input/qwertyInput';
 import { loadRemoteProgress, saveRemoteProgress } from './lib/auth/progressSync';
 import { getSupabaseClient, isSupabaseConfigured } from './lib/auth/supabaseClient';
-import { loadProgressState, pushAttempt, pushSession, saveProgressState } from './lib/storage/progressStore';
+import { buildProgressionMasterySummaries, MASTERY_MIN_ATTEMPTS } from './lib/progressionMastery';
+import { loadProgressState, normalizeProgressState, pushAttempt, pushSession, saveProgressState } from './lib/storage/progressStore';
 import { median } from './lib/theory/noteUtils';
+import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from './lib/voicingFamilies';
 import {
   degreeLabelsForScale,
   intersectPitchClasses,
   pitchClassesForScale,
   pitchClassesForScaleIds,
 } from './lib/theory/scaleMap';
+import { progressionSubtitle } from './lib/progressionLabels';
 import { resolveRomanToChord } from './lib/theory/roman';
-import type { EvaluationResult, Phrase } from './types/music';
+import type { EvaluationResult, Phrase, PhraseEvent, VoicingFamily } from './types/music';
 import type { AttemptRecord, ProgressState } from './types/progress';
 
 type Screen = 'practice' | 'progress';
 type ThemeMode = 'light' | 'dark' | 'focus';
-const CHORD_ADVANCE_TIMEOUT_MS = 1800;
 const FOOTPEDAL_RELEASE_WINDOW_MS = 650;
 const THEME_STORAGE_KEY = 'modal-muscle-memory-theme';
+
+interface ExercisePickerItem {
+  id: string;
+  label: string;
+  subtitle: string;
+  masteryLabel: string;
+  detailLabel: string;
+  mastered: boolean;
+}
 
 function loadInitialTheme(): ThemeMode {
   if (typeof window === 'undefined') {
@@ -69,6 +87,10 @@ function nextTheme(theme: ThemeMode): ThemeMode {
     return 'focus';
   }
   return 'light';
+}
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function authRedirectUrl(): string {
@@ -135,6 +157,16 @@ function unique(items: string[]): string[] {
   return [...new Set(items)];
 }
 
+function cycleIndex(length: number, currentIndex: number, direction: 'forward' | 'backward'): number {
+  if (length <= 0) {
+    return -1;
+  }
+
+  const offset = direction === 'forward' ? 1 : -1;
+  const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+  return (baseIndex + offset + length) % length;
+}
+
 const DISPLAY_NOTE_LABELS: Record<string, string> = {
   C: 'C',
   'C#': 'Db',
@@ -166,6 +198,38 @@ const SPECIFIC_RHYTHM_IDS = [
   'late_pickup_4',
   'floating_2and',
 ] as const;
+
+function defaultCustomVoicings(progress: ProgressState): VoicingFamily[] {
+  const activeAutoVoicings = activeVoicingFamiliesForPractice(progress);
+  if (activeAutoVoicings.length > 0) {
+    return activeAutoVoicings;
+  }
+
+  return VOICING_FAMILIES_IN_ORDER.slice(0, 1);
+}
+
+function normalizeCustomVoicingSelection(
+  selectedVoicings: VoicingFamily[],
+): VoicingFamily[] {
+  return orderedVoicingFamilies(selectedVoicings);
+}
+
+function normalizeVoicingConfig(progress: ProgressState): ProgressState {
+  if (progress.exerciseConfig.voicingPracticeMode !== 'custom') {
+    return progress;
+  }
+
+  const normalizedSelectedVoicings = normalizeCustomVoicingSelection(
+    progress.exerciseConfig.selectedVoicings,
+  );
+  return {
+    ...progress,
+    exerciseConfig: {
+      ...progress.exerciseConfig,
+      selectedVoicings: normalizedSelectedVoicings,
+    },
+  };
+}
 
 function normalizeRhythmSelection(selection: ProgressState['exerciseConfig']['rhythm']): ProgressState['exerciseConfig']['rhythm'] {
   if (selection.includes('all')) {
@@ -345,13 +409,10 @@ export default function App() {
     [progress.exerciseConfig.curriculumPresetId],
   );
 
-  const matchingProgressionCount = useMemo(
-    () => countMatchingProgressions(progress.exerciseConfig),
-    [progress.exerciseConfig],
-  );
-  const potentialPhraseCount = useMemo(() => countPotentialStarterPhrases(progress), [progress]);
+  const potentialPhraseVariants = useMemo(() => listPotentialPhraseVariants(progress), [progress]);
+  const potentialProgressionCount = useMemo(() => countPotentialProgressions(progress), [progress]);
   const inputMode = midiState.ready ? 'midi' : 'qwerty';
-  const computerKeyboardAudioEnabled = inputMode === 'qwerty' && progress.settings.enableComputerKeyboardAudio;
+  const computerKeyboardAudioEnabled = progress.settings.enableComputerKeyboardAudio;
   const practiceCountsTowardProgress = progress.settings.practiceTrackingMode === 'test';
 
   const deckMasteryPct = useMemo(() => {
@@ -473,9 +534,10 @@ export default function App() {
   }, [progress.settings.immersiveMode]);
 
   const commitProgress = useCallback((next: ProgressState) => {
-    progressRef.current = next;
-    setProgress(next);
-    saveProgressState(next);
+    const normalized = normalizeProgressState(next);
+    progressRef.current = normalized;
+    setProgress(normalized);
+    saveProgressState(normalized);
   }, []);
 
   useEffect(() => {
@@ -628,8 +690,22 @@ export default function App() {
     setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
   }, []);
 
+  const beatOffsetForEvent = useCallback((event: PhraseEvent) => (
+    ((event.bar - 1) * 4) + (event.beat - 1)
+  ), []);
+
+  const currentMetronomeBeatOffset = useCallback((atMs = performance.now()) => {
+    const workingPhrase = phraseRef.current;
+    if (!workingPhrase || phraseStartAtMsRef.current <= 0) {
+      return 0;
+    }
+
+    const msPerBeat = 60000 / workingPhrase.tempo;
+    return Math.max(0, (atMs - phraseStartAtMsRef.current) / msPerBeat);
+  }, []);
+
   const generateNextPhrase = useCallback((state: ProgressState) => {
-    if (countMatchingProgressions(state.exerciseConfig) === 0) {
+    if (playableProgressionIds(state.exerciseConfig, state).length === 0) {
       setPhrase(null);
       updateCurrentEventIndex(0);
       setCompletedEventIds(new Set());
@@ -660,22 +736,44 @@ export default function App() {
       setKeyboardTargetOverrideNotes(null);
     }
     const useKeyboardFriendlyRange = !midiState.ready && state.settings.keyboardFriendlyVoicings;
-    const nextPhrase = generatePhrase({
-      config: state.exerciseConfig,
-      progress: state,
-      tempo: state.settings.tempo,
-      midiRange: useKeyboardFriendlyRange
-        ? qwertyFriendlyRangeForOctaveShift(qwertyOctaveShiftRef.current)
-        : undefined,
-      previousPhrase: (
-        (state.exerciseConfig.mode === 'improvisation'
-          && state.exerciseConfig.improvisationProgressionMode === 'chained')
-        || (state.exerciseConfig.mode === 'guided'
-          && state.exerciseConfig.guidedFlowMode === 'musical_chaining')
-      )
-        ? phraseRef.current
-        : null,
-    });
+    let nextPhrase: Phrase;
+    try {
+      nextPhrase = generatePhrase({
+        config: state.exerciseConfig,
+        progress: state,
+        tempo: state.settings.tempo,
+        midiRange: useKeyboardFriendlyRange
+          ? qwertyFriendlyRangeForOctaveShift(qwertyOctaveShiftRef.current)
+          : undefined,
+        previousPhrase: (
+          (state.exerciseConfig.mode === 'improvisation'
+            && state.exerciseConfig.improvisationProgressionMode === 'chained')
+          || (state.exerciseConfig.mode === 'guided'
+            && state.exerciseConfig.guidedFlowMode === 'musical_chaining')
+        )
+          ? phraseRef.current
+          : null,
+      });
+    } catch (error) {
+      console.error('Unable to generate next phrase.', error);
+      setPhrase(null);
+      updateCurrentEventIndex(0);
+      setCompletedEventIds(new Set());
+      setLatestEvaluation(null);
+      setKeyboardTargetOverrideNotes(null);
+      setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+      metronomeRef.current.stop();
+      setIsRunning(false);
+      isRunningRef.current = false;
+      phraseStartAtMsRef.current = 0;
+      phraseStartedAtIsoRef.current = null;
+      previousTokenIdRef.current = null;
+      previousEventEndNotesRef.current = [];
+      phraseAttemptHistoryRef.current = [];
+      pendingAdvanceRef.current = null;
+      captureRef.current.clearRecent();
+      return;
+    }
 
     setPhrase(nextPhrase);
     updateCurrentEventIndex(0);
@@ -748,11 +846,113 @@ export default function App() {
     captureRef.current.clearRecent();
   }, [midiState.ready, updateCurrentEventIndex]);
 
+  const stepCurrentExercise = useCallback((direction: 'forward' | 'backward') => {
+    const workingPhrase = phraseRef.current;
+    if (!workingPhrase) {
+      return;
+    }
+
+    const progressionIds = playableProgressionIds(progressRef.current.exerciseConfig, progressRef.current);
+    if (progressionIds.length <= 1) {
+      return;
+    }
+
+    const currentIndex = progressionIds.indexOf(workingPhrase.progressionId);
+    const directionOffset = direction === 'forward' ? 1 : -1;
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (baseIndex + directionOffset + progressionIds.length) % progressionIds.length;
+    const nextProgressionId = progressionIds[nextIndex];
+    if (!nextProgressionId || nextProgressionId === workingPhrase.progressionId) {
+      return;
+    }
+
+    const firstToken = workingPhrase.events[0]
+      ? workingPhrase.tokensById[workingPhrase.events[0].chordTokenId]
+      : null;
+    const useKeyboardFriendlyRange = !midiState.ready && progressRef.current.settings.keyboardFriendlyVoicings;
+
+    carryoverNotesRef.current = new Set(captureRef.current.activeNoteNumbers);
+    suppressCarryoverDisplayRef.current = false;
+    setKeyboardTargetOverrideNotes(null);
+
+    const nextPhrase = generatePhrase({
+      config: progressRef.current.exerciseConfig,
+      progress: progressRef.current,
+      tempo: progressRef.current.settings.tempo,
+      midiRange: useKeyboardFriendlyRange
+        ? qwertyFriendlyRangeForOctaveShift(qwertyOctaveShiftRef.current)
+        : undefined,
+      tonicOverride: workingPhrase.tonic,
+      progressionOverrideId: nextProgressionId,
+      voicingFamilyOverride: firstToken?.voicingFamily,
+    });
+
+    setPhrase(nextPhrase);
+    updateCurrentEventIndex(0);
+    setCompletedEventIds(new Set());
+    setLatestEvaluation(null);
+    setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+    metronomeRef.current.stop();
+    setIsRunning(false);
+    isRunningRef.current = false;
+    phraseStartAtMsRef.current = 0;
+    phraseStartedAtIsoRef.current = null;
+    previousTokenIdRef.current = null;
+    previousEventEndNotesRef.current = [];
+    phraseAttemptHistoryRef.current = [];
+    pendingAdvanceRef.current = null;
+    captureRef.current.clearRecent();
+  }, [midiState.ready, updateCurrentEventIndex]);
+
+  const selectCurrentExercise = useCallback((progressionId: string) => {
+    const workingPhrase = phraseRef.current;
+    if (!workingPhrase || progressionId === workingPhrase.progressionId) {
+      return;
+    }
+
+    const firstToken = workingPhrase.events[0]
+      ? workingPhrase.tokensById[workingPhrase.events[0].chordTokenId]
+      : null;
+    const useKeyboardFriendlyRange = !midiState.ready && progressRef.current.settings.keyboardFriendlyVoicings;
+
+    carryoverNotesRef.current = new Set(captureRef.current.activeNoteNumbers);
+    suppressCarryoverDisplayRef.current = false;
+    setKeyboardTargetOverrideNotes(null);
+
+    const nextPhrase = generatePhrase({
+      config: progressRef.current.exerciseConfig,
+      progress: progressRef.current,
+      tempo: progressRef.current.settings.tempo,
+      midiRange: useKeyboardFriendlyRange
+        ? qwertyFriendlyRangeForOctaveShift(qwertyOctaveShiftRef.current)
+        : undefined,
+      tonicOverride: workingPhrase.tonic,
+      progressionOverrideId: progressionId,
+      voicingFamilyOverride: firstToken?.voicingFamily,
+    });
+
+    setPhrase(nextPhrase);
+    updateCurrentEventIndex(0);
+    setCompletedEventIds(new Set());
+    setLatestEvaluation(null);
+    setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+    metronomeRef.current.stop();
+    setIsRunning(false);
+    isRunningRef.current = false;
+    phraseStartAtMsRef.current = 0;
+    phraseStartedAtIsoRef.current = null;
+    previousTokenIdRef.current = null;
+    previousEventEndNotesRef.current = [];
+    phraseAttemptHistoryRef.current = [];
+    pendingAdvanceRef.current = null;
+    captureRef.current.clearRecent();
+  }, [midiState.ready, updateCurrentEventIndex]);
+
   useEffect(() => {
-    if (!phrase && matchingProgressionCount > 0) {
+    if (!phrase && potentialProgressionCount > 0) {
       generateNextPhrase(progressRef.current);
     }
-  }, [phrase, generateNextPhrase, matchingProgressionCount]);
+  }, [phrase, generateNextPhrase, potentialProgressionCount]);
 
   const finishPhrase = useCallback((workingProgress: ProgressState, targetPhrase: Phrase) => {
     const attempts = phraseAttemptHistoryRef.current;
@@ -867,15 +1067,7 @@ export default function App() {
       return true;
     }
 
-    const stillHoldingAccepted = pending.acceptedNotes.some((note) =>
-      captureRef.current.activeNoteNumbers.has(note),
-    );
-
-    const startedNewAttack = triggerMessage?.type === 'note_on'
-      && !pending.acceptedNotes.includes(triggerMessage.noteNumber);
-    const timeoutElapsed = (nowMs - pending.submittedAtMs) >= CHORD_ADVANCE_TIMEOUT_MS;
-
-    if (stillHoldingAccepted && !startedNewAttack && !timeoutElapsed) {
+    if (captureRef.current.activeNoteNumbers.size > 0) {
       return false;
     }
 
@@ -959,18 +1151,19 @@ export default function App() {
       return;
     }
 
+    const msPerBeat = 60000 / workingPhrase.tempo;
+    const eventBeatOffset = beatOffsetForEvent(event);
     if (!isRunningRef.current) {
-      phraseStartAtMsRef.current = submittedAtMs;
+      phraseStartAtMsRef.current = submittedAtMs - (eventBeatOffset * msPerBeat);
       phraseStartedAtIsoRef.current = nowIso();
       setIsRunning(true);
       isRunningRef.current = true;
       if (progressRef.current.settings.metronomeEnabled) {
-        void metronomeRef.current.start(workingPhrase.tempo);
+        void metronomeRef.current.start(workingPhrase.tempo, { beatOffsetBeats: eventBeatOffset });
       }
     }
 
-    const msPerBeat = 60000 / workingPhrase.tempo;
-    const expectedTimeMs = phraseStartAtMsRef.current + (((event.bar - 1) * 4) + (event.beat - 1)) * msPerBeat;
+    const expectedTimeMs = phraseStartAtMsRef.current + (eventBeatOffset * msPerBeat);
 
     const result = isImprovisationMode
       ? evaluateImprovisationAttempt({
@@ -1077,12 +1270,20 @@ export default function App() {
       }
 
       if (isLastEvent) {
-        finishPhrase(nextProgress, workingPhrase);
+        pendingAdvanceRef.current = {
+          nextIndex: null,
+          acceptedNotes: [...playedNotes],
+          submittedAtMs,
+          completedPhrase: workingPhrase,
+        };
         return;
       }
 
-      updateCurrentEventIndex(eventIndex + 1);
-      captureRef.current.clearRecent();
+      pendingAdvanceRef.current = {
+        nextIndex: eventIndex + 1,
+        acceptedNotes: [...playedNotes],
+        submittedAtMs,
+      };
       return;
     }
 
@@ -1102,7 +1303,12 @@ export default function App() {
 
     const isLastEvent = eventIndex >= workingPhrase.events.length - 1;
     if (isLastEvent) {
-      finishPhrase(nextProgress, workingPhrase);
+      pendingAdvanceRef.current = {
+        nextIndex: null,
+        acceptedNotes: [...playedNotes],
+        submittedAtMs,
+        completedPhrase: workingPhrase,
+      };
       return;
     }
 
@@ -1111,9 +1317,17 @@ export default function App() {
       acceptedNotes: [...playedNotes],
       submittedAtMs,
     };
-  }, [commitProgress, finishPhrase, practiceCountsTowardProgress, updateCurrentEventIndex]);
+  }, [beatOffsetForEvent, commitProgress, practiceCountsTowardProgress]);
 
   const handleMidiMessage = useCallback((message: ParsedMidiMessage) => {
+    if (computerKeyboardAudioEnabled) {
+      if (message.type === 'note_on') {
+        void previewRef.current.playInputNote(message.noteNumber);
+      } else if (message.type === 'note_off') {
+        previewRef.current.releaseInputNote(message.noteNumber);
+      }
+    }
+
     const workingPhrase = phraseRef.current;
     const eventIndex = currentEventIndexRef.current;
     const targetEvent = workingPhrase ? workingPhrase.events[eventIndex] : null;
@@ -1146,9 +1360,9 @@ export default function App() {
     }
 
     if (submission) {
-      submitAttempt(submission.notes, nowMs, submission.reason);
+      submitAttempt(submission.notes, submission.timestamp, submission.reason);
     }
-  }, [screen, commitPendingAdvanceIfReady, submitAttempt, syncVisibleMidiNotes]);
+  }, [computerKeyboardAudioEnabled, screen, commitPendingAdvanceIfReady, submitAttempt, syncVisibleMidiNotes]);
 
   const releaseAllQwertyNotes = useCallback(() => {
     if (qwertyPressedNotesRef.current.size === 0) {
@@ -1159,7 +1373,6 @@ export default function App() {
     const activeNotes = [...qwertyPressedNotesRef.current.values()];
     qwertyPressedNotesRef.current.clear();
     activeNotes.forEach((noteNumber) => {
-      previewRef.current.releaseInputNote(noteNumber);
       handleMidiMessage(createSyntheticNoteMessage('note_off', noteNumber, now));
     });
   }, [handleMidiMessage]);
@@ -1209,9 +1422,6 @@ export default function App() {
 
       const noteNumber = noteNumberForBinding(binding, qwertyOctaveShiftRef.current);
       qwertyPressedNotesRef.current.set(binding.key, noteNumber);
-      if (computerKeyboardAudioEnabled) {
-        void previewRef.current.playInputNote(noteNumber);
-      }
       handleMidiMessage(createSyntheticNoteMessage('note_on', noteNumber, performance.now()));
     };
 
@@ -1228,7 +1438,6 @@ export default function App() {
 
       event.preventDefault();
       qwertyPressedNotesRef.current.delete(binding.key);
-      previewRef.current.releaseInputNote(noteNumber);
       handleMidiMessage(createSyntheticNoteMessage('note_off', noteNumber, performance.now()));
     };
 
@@ -1255,34 +1464,6 @@ export default function App() {
       releaseAllQwertyNotes();
     };
   }, [computerKeyboardAudioEnabled, handleMidiMessage, inputMode, releaseAllQwertyNotes]);
-
-  useEffect(() => {
-    const handleArrowKeyStep = (event: KeyboardEvent) => {
-      if (screen !== 'practice' || event.metaKey || event.ctrlKey || event.altKey || isTextInputTarget(event.target)) {
-        return;
-      }
-
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        if (!event.repeat) {
-          stepCurrentKey('counterclockwise');
-        }
-        return;
-      }
-
-      if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        if (!event.repeat) {
-          stepCurrentKey('clockwise');
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleArrowKeyStep);
-    return () => {
-      window.removeEventListener('keydown', handleArrowKeyStep);
-    };
-  }, [screen, stepCurrentKey]);
 
   useEffect(() => {
     if (screen !== 'practice' || !phrase) {
@@ -1315,7 +1496,7 @@ export default function App() {
       }
 
       if (submission) {
-        submitAttempt(submission.notes, nowMs, submission.reason);
+        submitAttempt(submission.notes, submission.timestamp, submission.reason);
       }
     }, 40);
 
@@ -1367,9 +1548,11 @@ export default function App() {
     }
 
     if (shouldResumeMetronome) {
-      await metronomeRef.current.start(progressRef.current.settings.tempo);
+      await metronomeRef.current.start(progressRef.current.settings.tempo, {
+        beatOffsetBeats: currentMetronomeBeatOffset(),
+      });
     }
-  }, [phrase]);
+  }, [currentMetronomeBeatOffset, phrase]);
 
   const toggleMetronome = useCallback(() => {
     const enabled = !progressRef.current.settings.metronomeEnabled;
@@ -1390,9 +1573,11 @@ export default function App() {
     }
 
     if (isRunningRef.current) {
-      void metronomeRef.current.start(next.settings.tempo);
+      void metronomeRef.current.start(next.settings.tempo, {
+        beatOffsetBeats: currentMetronomeBeatOffset(),
+      });
     }
-  }, [commitProgress]);
+  }, [commitProgress, currentMetronomeBeatOffset]);
 
   const toggleKeyboardVisible = useCallback(() => {
     const next = {
@@ -1420,9 +1605,11 @@ export default function App() {
 
     commitProgress(next);
     if (nextPracticeTrackingMode === 'test' && isRunningRef.current) {
-      void metronomeRef.current.start(next.settings.tempo);
+      void metronomeRef.current.start(next.settings.tempo, {
+        beatOffsetBeats: currentMetronomeBeatOffset(),
+      });
     }
-  }, [commitProgress]);
+  }, [commitProgress, currentMetronomeBeatOffset]);
 
   const toggleComputerKeyboardAudio = useCallback(() => {
     const next = {
@@ -1543,6 +1730,17 @@ export default function App() {
     }
   }, [commitProgress]);
 
+  const commitExerciseConfig = useCallback((exerciseConfig: ProgressState['exerciseConfig']) => {
+    const next = normalizeVoicingConfig({
+      ...progressRef.current,
+      exerciseConfig,
+    });
+
+    commitProgress(next);
+    setStreak(0);
+    generateNextPhrase(next);
+  }, [commitProgress, generateNextPhrase]);
+
   const toggleClef = useCallback(() => {
     const nextClef: 'treble' | 'bass' = progressRef.current.settings.staffClef === 'bass' ? 'treble' : 'bass';
     const register = registerForClef(nextClef);
@@ -1572,122 +1770,203 @@ export default function App() {
   }, [commitProgress, generateNextPhrase, midiState.ready]);
 
   const selectCurriculumPreset = useCallback((curriculumPresetId: ProgressState['exerciseConfig']['curriculumPresetId']) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: applyCurriculumPreset(progressRef.current.exerciseConfig, curriculumPresetId),
-    };
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig(applyCurriculumPreset(progressRef.current.exerciseConfig, curriculumPresetId));
+  }, [commitExerciseConfig]);
+
+  const stepCurriculumPreset = useCallback((direction: 'forward' | 'backward') => {
+    if (CURRICULUM_PRESETS.length <= 1) {
+      return;
+    }
+
+    const currentIndex = CURRICULUM_PRESETS.findIndex(
+      (preset) => preset.id === progressRef.current.exerciseConfig.curriculumPresetId,
+    );
+    const nextPreset = CURRICULUM_PRESETS[cycleIndex(CURRICULUM_PRESETS.length, currentIndex, direction)];
+    if (!nextPreset) {
+      return;
+    }
+
+    selectCurriculumPreset(nextPreset.id);
+  }, [selectCurriculumPreset]);
 
   const selectKeySet = useCallback((keySet: ProgressState['exerciseConfig']['keySet']) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        keySet,
-      },
-    };
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      keySet,
+    });
+  }, [commitExerciseConfig]);
 
   const selectMode = useCallback((mode: ProgressState['exerciseConfig']['mode']) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        mode,
-        guidedFlowMode: mode === 'guided'
-          ? 'targeting_improvement'
-          : progressRef.current.exerciseConfig.guidedFlowMode,
-        improvisationProgressionMode: mode === 'improvisation'
-          ? 'chained'
-          : progressRef.current.exerciseConfig.improvisationProgressionMode,
-      },
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      mode,
+      guidedFlowMode: mode === 'guided'
+        ? 'targeting_improvement'
+        : progressRef.current.exerciseConfig.guidedFlowMode,
+      improvisationProgressionMode: mode === 'improvisation'
+        ? 'chained'
+        : progressRef.current.exerciseConfig.improvisationProgressionMode,
+    });
+  }, [commitExerciseConfig]);
+
+  const stepExerciseMode = useCallback((direction: 'forward' | 'backward') => {
+    const modes: ProgressState['exerciseConfig']['mode'][] = ['guided', 'improvisation'];
+    const currentIndex = modes.indexOf(progressRef.current.exerciseConfig.mode);
+    const nextMode = modes[cycleIndex(modes.length, currentIndex, direction)];
+    if (!nextMode) {
+      return;
+    }
+
+    selectMode(nextMode);
+  }, [selectMode]);
+
+  useEffect(() => {
+    const handleNavigationKeyStep = (event: KeyboardEvent) => {
+      if (screen !== 'practice' || event.metaKey || event.ctrlKey || event.altKey || isTextInputTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurrentKey('counterclockwise');
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurrentKey('clockwise');
+        }
+        return;
+      }
+
+      if (event.key === ',') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurrentExercise('backward');
+        }
+        return;
+      }
+
+      if (event.key === '.') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurrentExercise('forward');
+        }
+        return;
+      }
+
+      if (event.key === '_') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurriculumPreset('backward');
+        }
+        return;
+      }
+
+      if (event.key === '+') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepCurriculumPreset('forward');
+        }
+        return;
+      }
+
+      if (event.key === '-') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepExerciseMode('backward');
+        }
+        return;
+      }
+
+      if (event.key === '=') {
+        event.preventDefault();
+        if (!event.repeat) {
+          stepExerciseMode('forward');
+        }
+      }
     };
 
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    window.addEventListener('keydown', handleNavigationKeyStep);
+    return () => {
+      window.removeEventListener('keydown', handleNavigationKeyStep);
+    };
+  }, [screen, stepCurriculumPreset, stepCurrentExercise, stepCurrentKey, stepExerciseMode]);
 
   const selectGuidedFlowMode = useCallback((guidedFlowMode: ProgressState['exerciseConfig']['guidedFlowMode']) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        guidedFlowMode,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      guidedFlowMode,
+    });
+  }, [commitExerciseConfig]);
 
   const selectRhythm = useCallback((rhythm: 'all' | typeof SPECIFIC_RHYTHM_IDS[number]) => {
     const nextRhythm = toggleRhythmSelection(progressRef.current.exerciseConfig.rhythm, rhythm);
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        rhythm: nextRhythm,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      rhythm: nextRhythm,
+    });
+  }, [commitExerciseConfig]);
 
   const selectImprovisationProgressionMode = useCallback((
     improvisationProgressionMode: ProgressState['exerciseConfig']['improvisationProgressionMode'],
   ) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        improvisationProgressionMode,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      improvisationProgressionMode,
+    });
+  }, [commitExerciseConfig]);
 
   const selectImprovisationAdvanceMode = useCallback((
     improvisationAdvanceMode: ProgressState['exerciseConfig']['improvisationAdvanceMode'],
   ) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        improvisationAdvanceMode,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      improvisationAdvanceMode,
+    });
+  }, [commitExerciseConfig]);
 
   const setChainMovement = useCallback((chainMovement: number) => {
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        chainMovement: Math.max(0, Math.min(100, Math.round(chainMovement))),
-      },
-    };
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      chainMovement: Math.max(0, Math.min(100, Math.round(chainMovement))),
+    });
+  }, [commitExerciseConfig]);
 
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+  const selectVoicingPracticeMode = useCallback((voicingPracticeMode: ProgressState['exerciseConfig']['voicingPracticeMode']) => {
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      voicingPracticeMode,
+      selectedVoicings: voicingPracticeMode === 'custom'
+        ? (progressRef.current.exerciseConfig.selectedVoicings.length > 0
+          ? progressRef.current.exerciseConfig.selectedVoicings
+          : defaultCustomVoicings(progressRef.current))
+        : progressRef.current.exerciseConfig.selectedVoicings,
+    });
+  }, [commitExerciseConfig]);
+
+  const toggleSelectedVoicing = useCallback((voicingFamily: VoicingFamily) => {
+    const currentSelected = normalizeCustomVoicingSelection(
+      progressRef.current.exerciseConfig.selectedVoicings,
+    );
+    const isSelected = currentSelected.includes(voicingFamily);
+  const nextSelected = isSelected
+    ? currentSelected.filter((voicing) => voicing !== voicingFamily)
+    : orderedVoicingFamilies([...currentSelected, voicingFamily]);
+
+    if (nextSelected.length === 0) {
+      return;
+    }
+
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      voicingPracticeMode: 'custom',
+      selectedVoicings: nextSelected,
+    });
+  }, [commitExerciseConfig]);
 
   const toggleContentBlock = useCallback((contentBlockId: ProgressState['exerciseConfig']['enabledContentBlockIds'][number]) => {
     const current = progressRef.current.exerciseConfig.enabledContentBlockIds;
@@ -1695,18 +1974,11 @@ export default function App() {
       ? current.filter((id) => id !== contentBlockId)
       : [...current, contentBlockId];
 
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        enabledContentBlockIds: nextIds,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      enabledContentBlockIds: nextIds,
+    });
+  }, [commitExerciseConfig]);
 
   const toggleScaleFamily = useCallback((scaleFamilyId: ProgressState['exerciseConfig']['enabledScaleFamilyIds'][number]) => {
     const current = progressRef.current.exerciseConfig.enabledScaleFamilyIds;
@@ -1714,18 +1986,11 @@ export default function App() {
       ? current.filter((id) => id !== scaleFamilyId)
       : [...current, scaleFamilyId];
 
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        enabledScaleFamilyIds: nextIds,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      enabledScaleFamilyIds: nextIds,
+    });
+  }, [commitExerciseConfig]);
 
   const toggleProgressionFamily = useCallback((progressionFamilyTag: ProgressState['exerciseConfig']['enabledProgressionFamilyTags'][number]) => {
     const current = progressRef.current.exerciseConfig.enabledProgressionFamilyTags;
@@ -1733,18 +1998,11 @@ export default function App() {
       ? current.filter((id) => id !== progressionFamilyTag)
       : [...current, progressionFamilyTag];
 
-    const next = {
-      ...progressRef.current,
-      exerciseConfig: {
-        ...progressRef.current.exerciseConfig,
-        enabledProgressionFamilyTags: nextIds,
-      },
-    };
-
-    commitProgress(next);
-    setStreak(0);
-    generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase]);
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      enabledProgressionFamilyTags: nextIds,
+    });
+  }, [commitExerciseConfig]);
 
   const keyboardTargetNotes = useMemo(() => {
     if (progress.exerciseConfig.mode !== 'improvisation' && keyboardTargetOverrideNotes) {
@@ -1790,6 +2048,35 @@ export default function App() {
     () => rootsForKeySet(progress.exerciseConfig.keySet),
     [progress.exerciseConfig.keySet],
   );
+  const availableProgressionIds = useMemo(
+    () => playableProgressionIds(progress.exerciseConfig, progress),
+    [progress],
+  );
+  const exercisePickerItems = useMemo<ExercisePickerItem[]>(() => {
+    const masteryById = new Map(
+      buildProgressionMasterySummaries(progress).map((summary) => [summary.progression.id, summary]),
+    );
+
+    return availableProgressionIds.reduce<ExercisePickerItem[]>((items, progressionId) => {
+      const summary = masteryById.get(progressionId);
+      if (!summary) {
+        return items;
+      }
+
+      items.push({
+        id: summary.progression.id,
+        label: summary.progression.steps.map((step) => step.roman).join('-'),
+        subtitle: progressionSubtitle(summary.progression.id),
+        masteryLabel: summary.attempts === 0 ? 'New' : pct(summary.recentAccuracy),
+        detailLabel: summary.attempts === 0
+          ? 'No reps yet'
+          : `${summary.attempts} rep${summary.attempts === 1 ? '' : 's'} · ${Math.min(summary.attempts, MASTERY_MIN_ATTEMPTS)} recent`,
+        mastered: summary.mastered,
+      });
+
+      return items;
+    }, []);
+  }, [availableProgressionIds, progress]);
 
   if (screen === 'progress') {
     return (
@@ -1813,6 +2100,7 @@ export default function App() {
         curriculumLabel={activeCurriculumPreset?.label ?? 'Custom Curriculum'}
         practiceTrackingMode={progress.settings.practiceTrackingMode}
         phrase={phrase}
+        hasCompatiblePhrases={potentialProgressionCount > 0}
         clef={progress.settings.staffClef}
         currentEventIndex={currentEventIndex}
         completedEventIds={completedEventIds}
@@ -1850,6 +2138,17 @@ export default function App() {
         onToggleCircleVisualizationMode={toggleCircleVisualizationMode}
         onToggleImmersiveMode={toggleImmersiveMode}
         onToggleClef={toggleClef}
+        canStepCurriculum={CURRICULUM_PRESETS.length > 1}
+        onStepCurriculumBackward={() => stepCurriculumPreset('backward')}
+        onStepCurriculumForward={() => stepCurriculumPreset('forward')}
+        canStepMode={true}
+        onStepModeBackward={() => stepExerciseMode('backward')}
+        onStepModeForward={() => stepExerciseMode('forward')}
+        canStepExercise={availableProgressionIds.length > 1 && Boolean(phrase)}
+        exercisePickerItems={exercisePickerItems}
+        onSelectExercise={selectCurrentExercise}
+        onStepExerciseBackward={() => stepCurrentExercise('backward')}
+        onStepExerciseForward={() => stepCurrentExercise('forward')}
         onStepKeyBackward={() => stepCurrentKey('counterclockwise')}
         onStepKeyForward={() => stepCurrentKey('clockwise')}
         onToggleMetronome={toggleMetronome}
@@ -1862,7 +2161,8 @@ export default function App() {
         <PracticeSettingsDrawer
           progress={progress}
           inputMode={inputMode}
-          potentialPhraseCount={potentialPhraseCount}
+          potentialProgressionCount={potentialProgressionCount}
+          potentialPhraseVariants={potentialPhraseVariants}
           authConfigured={isSupabaseConfigured()}
           authEmail={authEmail}
           authStatusText={authStatusText}
@@ -1883,6 +2183,8 @@ export default function App() {
           onSelectImprovisationProgressionMode={selectImprovisationProgressionMode}
           onSelectImprovisationAdvanceMode={selectImprovisationAdvanceMode}
           onSetChainMovement={setChainMovement}
+          onSelectVoicingPracticeMode={selectVoicingPracticeMode}
+          onToggleSelectedVoicing={toggleSelectedVoicing}
           onToggleContentBlock={toggleContentBlock}
           onToggleScaleFamily={toggleScaleFamily}
           onToggleProgressionFamily={toggleProgressionFamily}

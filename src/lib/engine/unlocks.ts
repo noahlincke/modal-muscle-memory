@@ -1,13 +1,26 @@
 import type { ModeLane, VoicingFamily } from '../../types/music';
 import type { ProgressState, UnlockDecision, UnlockState } from '../../types/progress';
 import { median } from '../theory/noteUtils';
+import { VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const ROOT_UNLOCK_ORDER = ['C', 'G', 'F', 'D', 'Bb', 'A', 'Eb', 'E', 'Ab', 'B', 'Db', 'Gb'];
-const VOICING_UNLOCK_ORDER: VoicingFamily[] = ['shell_137', 'closed_7th', 'inversion_1'];
+const VOICING_UNLOCK_ORDER: VoicingFamily[] = VOICING_FAMILIES_IN_ORDER.filter((voicing) => [
+  'guide_tone_37',
+  'guide_tone_73',
+  'shell_137',
+  'rootless_379',
+  'rootless_7313',
+  'closed_7th',
+  'inversion_1',
+].includes(voicing));
 
 const VOICING_LATENCY_TARGET_MS: Record<VoicingFamily, number> = {
+  guide_tone_37: 700,
+  guide_tone_73: 700,
   shell_137: 900,
   shell_173: 900,
+  rootless_379: 1050,
+  rootless_7313: 1100,
   closed_7th: 1100,
   inversion_1: 1300,
   inversion_2: 1300,

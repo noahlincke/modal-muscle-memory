@@ -14,6 +14,7 @@ import type {
   RhythmSelection,
   ScoringMode,
   ScaleFamilyId,
+  VoicingPracticeMode,
   VoicingFamily,
 } from './music';
 
@@ -26,6 +27,8 @@ export interface ExerciseConfig {
   enabledProgressionFamilyTags: ProgressionFamilyTag[];
   keySet: KeySetId;
   rhythm: RhythmSelection;
+  voicingPracticeMode: VoicingPracticeMode;
+  selectedVoicings: VoicingFamily[];
   guidedFlowMode: GuidedFlowMode;
   improvisationProgressionMode: ImprovisationProgressionMode;
   improvisationAdvanceMode: ImprovisationAdvanceMode;
