@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { keySignatureForRoot } from '../content/keys';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { progressionSubtitle } from '../lib/progressionLabels';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
-import type { CircleVisualizationMode, EvaluationResult, ExerciseMode, Phrase } from '../types/music';
+import type {
+  CircleVisualizationMode,
+  CurriculumPresetId,
+  EvaluationResult,
+  ExerciseMode,
+  KeySetId,
+  Phrase,
+} from '../types/music';
 import { CircleOfFifths } from './CircleOfFifths';
 import { NotationStrip } from './NotationStrip';
 import { PianoView } from './PianoView';
 import { QwertyView } from './QwertyView';
 import { ThemeToggle } from './ThemeToggle';
+import { WalkthroughBubble, type WalkthroughStep } from './WalkthroughBubble';
 
 interface ExercisePickerItem {
   id: string;
@@ -19,10 +27,26 @@ interface ExercisePickerItem {
   mastered: boolean;
 }
 
+interface KeySetPickerItem {
+  id: KeySetId;
+  label: string;
+  description: string;
+  selected: boolean;
+}
+
+interface CurriculumPickerItem {
+  id: CurriculumPresetId;
+  label: string;
+  description: string;
+  selected: boolean;
+  disabled: boolean;
+}
+
 interface PracticeLayoutProps {
   exerciseMode: ExerciseMode;
   curriculumLabel: string;
   practiceTrackingMode: 'test' | 'play';
+  practiceTrackingFlashToken: number;
   phrase: Phrase | null;
   hasCompatiblePhrases: boolean;
   clef: 'treble' | 'bass';
@@ -41,7 +65,7 @@ interface PracticeLayoutProps {
   qwertyOctaveShift: number;
   tempo: number;
   keyboardTargetNotes: number[];
-  scaleGuideLabelMode: 'degrees' | 'note_names';
+  scaleGuideLabelMode: 'degrees' | 'note_names' | 'hidden';
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
   currentScaleGuideLabels: Record<string, string>;
@@ -66,7 +90,27 @@ interface PracticeLayoutProps {
   onStepModeForward: () => void;
   canStepExercise: boolean;
   exercisePickerItems: ExercisePickerItem[];
+  currentKeySetLabel: string;
+  includedKeysLabel: string;
+  availableKeyRoots: string[];
+  keySetPickerItems: KeySetPickerItem[];
+  curriculumPickerItems: CurriculumPickerItem[];
+  exerciseLocked: boolean;
+  keyLocked: boolean;
+  guidedFlowMode: 'random' | 'targeting_improvement' | 'musical_chaining';
+  improvisationProgressionMode: 'random' | 'targeting_improvement' | 'chained';
+  chainMovement: number;
   onSelectExercise: (progressionId: string) => void;
+  onSelectCurrentKey: (root: string) => void;
+  onSelectKeySet: (keySetId: KeySetId) => void;
+  onClearKeySet: () => void;
+  onToggleExerciseLock: () => void;
+  onToggleKeyLock: () => void;
+  onSelectMode: (mode: ExerciseMode) => void;
+  onToggleCurriculumPreset: (presetId: CurriculumPresetId) => void;
+  onSelectGuidedFlowMode: (mode: 'random' | 'targeting_improvement' | 'musical_chaining') => void;
+  onSelectImprovisationProgressionMode: (mode: 'random' | 'targeting_improvement' | 'chained') => void;
+  onSetChainMovement: (chainMovement: number) => void;
   onStepExerciseBackward: () => void;
   onStepExerciseForward: () => void;
   onStepKeyBackward: () => void;
@@ -75,6 +119,9 @@ interface PracticeLayoutProps {
   onToggleTheme: () => void;
   onPlayReference: () => void;
   onOpenSettings: () => void;
+  walkthroughStep: WalkthroughStep | null;
+  onAdvanceWalkthrough: () => void;
+  onDismissWalkthrough: () => void;
 }
 
 function MetronomeIcon({ enabled }: { enabled: boolean }) {
@@ -105,28 +152,6 @@ function KeyboardIcon({ visible }: { visible: boolean }) {
       {!visible ? (
         <path d="M5.4 5.4 18.6 18.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       ) : null}
-    </svg>
-  );
-}
-
-function CircleArrowIcon({ mode }: { mode: CircleVisualizationMode }) {
-  if (mode === 'intervals') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
-        <circle cx="12" cy="5.8" r="1.4" fill="currentColor" />
-        <circle cx="17.4" cy="15.1" r="1.4" fill="currentColor" />
-        <circle cx="6.6" cy="15.1" r="1.4" fill="currentColor" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M12 12 17.2 8.6" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
-      <path d="m15.7 8.3 1.9.3-.8 1.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="1.4" fill="currentColor" />
     </svg>
   );
 }
@@ -186,6 +211,24 @@ function SettingsIcon() {
         strokeLinejoin="round"
       />
       <circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function LockIcon({ locked }: { locked: boolean }) {
+  if (locked) {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 10V7.8a4 4 0 1 1 8 0V10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <rect x="6.1" y="10" width="11.8" height="9.2" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 10V7.8a4 4 0 1 1 7.2 2.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <rect x="6.1" y="10" width="11.8" height="9.2" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -266,6 +309,7 @@ export function PracticeLayout({
   exerciseMode,
   curriculumLabel,
   practiceTrackingMode,
+  practiceTrackingFlashToken,
   phrase,
   hasCompatiblePhrases,
   clef,
@@ -309,7 +353,27 @@ export function PracticeLayout({
   onStepModeForward,
   canStepExercise,
   exercisePickerItems,
+  currentKeySetLabel,
+  includedKeysLabel,
+  availableKeyRoots,
+  keySetPickerItems,
+  curriculumPickerItems,
+  exerciseLocked,
+  keyLocked,
+  guidedFlowMode,
+  improvisationProgressionMode,
+  chainMovement,
   onSelectExercise,
+  onSelectCurrentKey,
+  onSelectKeySet,
+  onClearKeySet,
+  onToggleExerciseLock,
+  onToggleKeyLock,
+  onSelectMode,
+  onToggleCurriculumPreset,
+  onSelectGuidedFlowMode,
+  onSelectImprovisationProgressionMode,
+  onSetChainMovement,
   onStepExerciseBackward,
   onStepExerciseForward,
   onStepKeyBackward,
@@ -318,7 +382,11 @@ export function PracticeLayout({
   onToggleTheme,
   onPlayReference,
   onOpenSettings,
+  walkthroughStep,
+  onAdvanceWalkthrough,
+  onDismissWalkthrough,
 }: PracticeLayoutProps) {
+  const practiceTrackingFlashSeenRef = useRef(practiceTrackingFlashToken);
   const currentEvent = phrase ? phrase.events[currentEventIndex] : null;
   const currentToken = currentEvent ? phrase?.tokensById[currentEvent.chordTokenId] ?? null : null;
   const progressionLabel = phrase
@@ -335,42 +403,91 @@ export function PracticeLayout({
   const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided';
   const showPerformanceStats = exerciseMode !== 'improvisation';
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
-  const [showKeyboardGuide, setShowKeyboardGuide] = useState(false);
-  const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
+  const [dismissedQwertyWarning, setDismissedQwertyWarning] = useState(false);
+  const [isPracticeTrackingFlashing, setIsPracticeTrackingFlashing] = useState(false);
+  const [openPicker, setOpenPicker] = useState<'exercise' | 'key' | 'content' | null>(null);
   const midiWarning = inputMode === 'qwerty'
     ? 'QWERTY mode active · connect MIDI to switch'
     : (midiState.error ?? 'MIDI not detected');
+  const showDismissibleQwertyWarning = inputMode === 'qwerty' && !dismissedQwertyWarning;
+  const showPersistentMidiWarning = inputMode !== 'qwerty' && Boolean(midiState.error);
+  const keyboardLaneIsLabelCycleTarget = exerciseMode === 'improvisation';
+  const keyboardLaneLabel = scaleGuideLabelMode === 'degrees'
+    ? 'Scale guides shown as interval numbers. Click keyboard to show note names.'
+    : (scaleGuideLabelMode === 'note_names'
+      ? 'Scale guides shown as note names. Click keyboard to hide guide labels.'
+      : 'Scale guide labels hidden. Click keyboard to show interval numbers.');
+  const notationStripLabel = circleVisualizationMode === 'intervals'
+    ? 'Circle view shown. Click staff to switch to Chord view.'
+    : (circleVisualizationMode === 'chord_arrows'
+      ? 'Chord view shown. Click staff to hide the circle of fifths.'
+      : 'Circle of fifths hidden. Click staff to show Circle view.');
+  const currentKeyDisplay = phrase?.tonic ?? availableKeyRoots[0] ?? null;
+  const exercisePickerOpen = openPicker === 'exercise';
+  const keyPickerOpen = openPicker === 'key';
+  const contentPickerOpen = openPicker === 'content';
+  const walkthroughActive = walkthroughStep !== null;
+  const walkthroughMessage = walkthroughStep === 'exercise'
+    ? 'Click to change current progression.'
+    : walkthroughStep === 'key'
+      ? 'This shows the current key and signature. The side buttons move around the active key set.'
+      : walkthroughStep === 'content'
+        ? 'This area controls curriculum and practice mode. The stacked side buttons step each independently.'
+        : walkthroughStep === 'settings'
+          ? 'This opens profile, progress, and deeper practice controls when you need them.'
+          : null;
+  const walkthroughActionLabel = walkthroughStep === 'settings' ? 'Done' : 'Next';
 
   useEffect(() => {
     setTempoInput(String(tempo));
   }, [tempo]);
 
   useEffect(() => {
-    if (exerciseMode !== 'improvisation' || !keyboardVisible) {
-      setShowKeyboardGuide(false);
+    if (inputMode !== 'qwerty') {
+      setDismissedQwertyWarning(false);
     }
-  }, [exerciseMode, keyboardVisible]);
+  }, [inputMode]);
 
   useEffect(() => {
-    if (!phrase || exercisePickerItems.length === 0) {
-      setExercisePickerOpen(false);
+    if (practiceTrackingFlashToken === 0 || practiceTrackingFlashToken === practiceTrackingFlashSeenRef.current) {
+      return undefined;
     }
-  }, [exercisePickerItems.length, phrase]);
+
+    practiceTrackingFlashSeenRef.current = practiceTrackingFlashToken;
+    setIsPracticeTrackingFlashing(true);
+    const timer = window.setTimeout(() => {
+      setIsPracticeTrackingFlashing(false);
+    }, 720);
+
+    return () => window.clearTimeout(timer);
+  }, [practiceTrackingFlashToken]);
 
   useEffect(() => {
-    if (!exercisePickerOpen) {
+    if ((!phrase || exercisePickerItems.length === 0) && openPicker === 'exercise') {
+      setOpenPicker(null);
+    }
+  }, [exercisePickerItems.length, openPicker, phrase]);
+
+  useEffect(() => {
+    if (walkthroughActive && openPicker) {
+      setOpenPicker(null);
+    }
+  }, [openPicker, walkthroughActive]);
+
+  useEffect(() => {
+    if (!openPicker) {
       return undefined;
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setExercisePickerOpen(false);
+        setOpenPicker(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [exercisePickerOpen]);
+  }, [openPicker]);
 
   const commitTempoInput = () => {
     const trimmed = tempoInput.trim();
@@ -396,7 +513,17 @@ export function PracticeLayout({
         </div>
 
         <div className="practice-controls">
-          {inputMode === 'qwerty' || !midiState.ready ? (
+          {showDismissibleQwertyWarning ? (
+            <button
+              type="button"
+              className="midi-warning midi-warning-dismiss"
+              onClick={() => setDismissedQwertyWarning(true)}
+              title="Dismiss qwerty mode notice"
+            >
+              {midiWarning}
+            </button>
+          ) : null}
+          {showPersistentMidiWarning ? (
             <span className="midi-warning">{midiWarning}</span>
           ) : null}
 
@@ -414,19 +541,7 @@ export function PracticeLayout({
 
           <button
             type="button"
-            className="icon-button circle-visual-toggle"
-            aria-label={circleVisualizationMode === 'chord_arrows'
-              ? 'Circle arrows active. Switch to interval markers'
-              : 'Circle intervals active. Switch to chord arrows'}
-            title={circleVisualizationMode === 'chord_arrows' ? 'Circle view: chord arrows' : 'Circle view: interval markers'}
-            onClick={onToggleCircleVisualizationMode}
-          >
-            <CircleArrowIcon mode={circleVisualizationMode} />
-          </button>
-
-          <button
-            type="button"
-            className="icon-button"
+            className={`icon-button practice-mode-indicator ${isPracticeTrackingFlashing ? 'is-auto-flashing' : ''}`.trim()}
             aria-label={practiceTrackingMode === 'test'
               ? 'Test mode active. Count attempts and mastery. Switch to play mode'
               : 'Play mode active. Do not count attempts or mastery. Switch to test mode'}
@@ -447,18 +562,6 @@ export function PracticeLayout({
           >
             <KeyboardIcon visible={keyboardVisible} />
           </button>
-
-          {exerciseMode === 'improvisation' ? (
-            <button
-              type="button"
-              className="icon-button label-mode-button"
-              aria-label={scaleGuideLabelMode === 'degrees' ? 'Show scale guides as note names' : 'Show scale guides as interval numbers'}
-              onClick={onToggleScaleGuideLabelMode}
-              title={scaleGuideLabelMode === 'degrees' ? 'Scale guides: interval numbers' : 'Scale guides: note names'}
-            >
-              <span aria-hidden="true">{scaleGuideLabelMode === 'degrees' ? '123' : 'Eb'}</span>
-            </button>
-          ) : null}
 
           <button
             type="button"
@@ -510,21 +613,50 @@ export function PracticeLayout({
             <PlayIcon />
           </button>
 
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Practice settings"
-            onClick={onOpenSettings}
-          >
-            <SettingsIcon />
-          </button>
+          <div className={`walkthrough-anchor walkthrough-anchor-topbar ${walkthroughStep === 'settings' ? 'walkthrough-panel-focus' : ''}`.trim()}>
+            <button
+              type="button"
+              className={`icon-button ${walkthroughStep === 'settings' ? 'walkthrough-target' : ''}`.trim()}
+              aria-label="Practice settings"
+              onClick={() => {
+                if (walkthroughActive) {
+                  return;
+                }
+                onOpenSettings();
+              }}
+            >
+              <SettingsIcon />
+            </button>
+            {walkthroughStep === 'settings' && walkthroughMessage ? (
+              <WalkthroughBubble
+                message={walkthroughMessage}
+                actionLabel={walkthroughActionLabel}
+                onAction={onAdvanceWalkthrough}
+                onSkip={onDismissWalkthrough}
+                align="end"
+              />
+            ) : null}
+          </div>
         </div>
       </header>
 
       <section className="practice-hud-strip">
         <div className="hud-primary-strip">
-          <article className="hud-primary-cell hud-primary-exercise">
-            <p className="hud-caption">Current Exercise</p>
+          <article className={`hud-primary-cell hud-primary-exercise ${walkthroughStep === 'exercise' ? 'walkthrough-panel-focus' : ''}`.trim()}>
+            <div className="hud-cell-head">
+              <p className="hud-caption">Current Exercise</p>
+              <button
+                type="button"
+                className={`hud-lock-button ${exerciseLocked ? 'is-locked' : ''}`.trim()}
+                onClick={onToggleExerciseLock}
+                disabled={!phrase}
+                aria-pressed={exerciseLocked}
+                aria-label={exerciseLocked ? 'Unlock current exercise' : 'Lock current exercise'}
+                title={exerciseLocked ? 'Exercise locked' : 'Lock current exercise'}
+              >
+                <LockIcon locked={exerciseLocked} />
+              </button>
+            </div>
             <div className="hud-primary-exercise-row">
               <button
                 type="button"
@@ -538,16 +670,31 @@ export function PracticeLayout({
               >
                 <span className="hud-key-step-glyph" aria-hidden="true">,</span>
               </button>
-              <button
-                type="button"
-                className="hud-primary-value hud-primary-exercise-value hud-exercise-picker-trigger"
-                onClick={() => setExercisePickerOpen(true)}
-                disabled={!phrase || exercisePickerItems.length === 0}
-                aria-label="Choose current exercise"
-              >
-                <span>{progressionLabel}</span>
-                {progressionSubtitleLabel ? <small>{progressionSubtitleLabel}</small> : null}
-              </button>
+              <div className="walkthrough-anchor">
+                <button
+                  type="button"
+                  className={`hud-primary-value hud-primary-exercise-value hud-exercise-picker-trigger ${walkthroughStep === 'exercise' ? 'walkthrough-target' : ''}`.trim()}
+                  onClick={() => {
+                    if (walkthroughActive) {
+                      return;
+                    }
+                    setOpenPicker('exercise');
+                  }}
+                  disabled={!phrase || exercisePickerItems.length === 0}
+                  aria-label="Choose current exercise"
+                >
+                  <span>{progressionLabel}</span>
+                  {progressionSubtitleLabel ? <small>{progressionSubtitleLabel}</small> : null}
+                </button>
+                {walkthroughStep === 'exercise' && walkthroughMessage ? (
+                  <WalkthroughBubble
+                    message={walkthroughMessage}
+                    actionLabel={walkthroughActionLabel}
+                    onAction={onAdvanceWalkthrough}
+                    onSkip={onDismissWalkthrough}
+                  />
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="hud-key-step"
@@ -563,8 +710,21 @@ export function PracticeLayout({
             </div>
           </article>
 
-          <article className="hud-primary-cell hud-primary-key">
-            <p className="hud-caption">Current Key</p>
+          <article className={`hud-primary-cell hud-primary-key ${walkthroughStep === 'key' ? 'walkthrough-panel-focus' : ''}`.trim()}>
+            <div className="hud-cell-head">
+              <p className="hud-caption">Current Key</p>
+              <button
+                type="button"
+                className={`hud-lock-button ${keyLocked ? 'is-locked' : ''}`.trim()}
+                onClick={onToggleKeyLock}
+                disabled={!phrase}
+                aria-pressed={keyLocked}
+                aria-label={keyLocked ? 'Unlock current key' : 'Lock current key'}
+                title={keyLocked ? 'Key locked' : 'Lock current key'}
+              >
+                <LockIcon locked={keyLocked} />
+              </button>
+            </div>
             <div className="hud-primary-key-row">
               <button
                 type="button"
@@ -575,9 +735,29 @@ export function PracticeLayout({
               >
                 <span className="hud-key-step-glyph" aria-hidden="true">&lt;</span>
               </button>
-              <div className="hud-primary-value hud-primary-key-value">
-                <span>{tonicLabel}</span>
-                <KeySignatureStaff tonic={phrase?.tonic ?? null} />
+              <div className="walkthrough-anchor">
+                <button
+                  type="button"
+                  className={`hud-primary-value hud-primary-key-value hud-panel-trigger ${walkthroughStep === 'key' ? 'walkthrough-target' : ''}`.trim()}
+                  onClick={() => {
+                    if (walkthroughActive) {
+                      return;
+                    }
+                    setOpenPicker('key');
+                  }}
+                  aria-label="Choose current key"
+                >
+                  <span>{tonicLabel}</span>
+                  <KeySignatureStaff tonic={phrase?.tonic ?? null} />
+                </button>
+                {walkthroughStep === 'key' && walkthroughMessage ? (
+                  <WalkthroughBubble
+                    message={walkthroughMessage}
+                    actionLabel={walkthroughActionLabel}
+                    onAction={onAdvanceWalkthrough}
+                    onSkip={onDismissWalkthrough}
+                  />
+                ) : null}
               </div>
               <button
                 type="button"
@@ -591,7 +771,7 @@ export function PracticeLayout({
             </div>
           </article>
 
-          <article className="hud-primary-cell hud-primary-content">
+          <article className={`hud-primary-cell hud-primary-content ${walkthroughStep === 'content' ? 'walkthrough-panel-focus' : ''}`.trim()}>
             <p className="hud-caption">Content</p>
             <div className="hud-primary-content-row">
               <div className="hud-primary-content-controls">
@@ -614,9 +794,29 @@ export function PracticeLayout({
                   <span className="hud-key-step-glyph" aria-hidden="true">-</span>
                 </button>
               </div>
-              <div className="hud-primary-value hud-primary-exercise-value hud-primary-content-value">
-                <span>{curriculumLabel}</span>
-                <small>{modeLabel}</small>
+              <div className="walkthrough-anchor">
+                <button
+                  type="button"
+                  className={`hud-primary-value hud-primary-exercise-value hud-primary-content-value hud-panel-trigger ${walkthroughStep === 'content' ? 'walkthrough-target' : ''}`.trim()}
+                  onClick={() => {
+                    if (walkthroughActive) {
+                      return;
+                    }
+                    setOpenPicker('content');
+                  }}
+                  aria-label="Choose content"
+                >
+                  <span>{curriculumLabel}</span>
+                  <small>{modeLabel}</small>
+                </button>
+                {walkthroughStep === 'content' && walkthroughMessage ? (
+                  <WalkthroughBubble
+                    message={walkthroughMessage}
+                    actionLabel={walkthroughActionLabel}
+                    onAction={onAdvanceWalkthrough}
+                    onSkip={onDismissWalkthrough}
+                  />
+                ) : null}
               </div>
               <div className="hud-primary-content-controls">
                 <button
@@ -665,7 +865,7 @@ export function PracticeLayout({
       </section>
 
       {exercisePickerOpen ? (
-        <div className="exercise-picker-overlay" role="presentation" onClick={() => setExercisePickerOpen(false)}>
+        <div className="exercise-picker-overlay" role="presentation" onClick={() => setOpenPicker(null)}>
           <section
             className="exercise-picker-window"
             role="dialog"
@@ -681,7 +881,7 @@ export function PracticeLayout({
               <button
                 type="button"
                 className="icon-button settings-close"
-                onClick={() => setExercisePickerOpen(false)}
+                onClick={() => setOpenPicker(null)}
                 aria-label="Close exercise picker"
               >
                 ×
@@ -698,7 +898,7 @@ export function PracticeLayout({
                     className={`exercise-picker-pill ${selected ? 'selected' : ''} ${item.mastered ? 'mastered' : ''}`.trim()}
                     onClick={() => {
                       onSelectExercise(item.id);
-                      setExercisePickerOpen(false);
+                      setOpenPicker(null);
                     }}
                   >
                     <span className="exercise-picker-pill-copy">
@@ -717,8 +917,253 @@ export function PracticeLayout({
         </div>
       ) : null}
 
-      <div className="practice-workstack">
-        <div className="practice-notation-slot">
+      {keyPickerOpen ? (
+        <div className="exercise-picker-overlay" role="presentation" onClick={() => setOpenPicker(null)}>
+          <section
+            className="exercise-picker-window exercise-picker-window-wide exercise-picker-window-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose current key"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="exercise-picker-header">
+              <div>
+                <p className="eyebrow">Current Filter</p>
+                <h3>Choose current key</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button settings-close"
+                onClick={() => setOpenPicker(null)}
+                aria-label="Close key picker"
+              >
+                ×
+              </button>
+            </div>
+            <section className="settings-section">
+              <div className="settings-section-copy">
+                <p>Click any tonic on the circle of fifths. Choosing a key outside the current set adds it automatically.</p>
+              </div>
+              <div className="exercise-picker-circle">
+                <CircleOfFifths
+                  currentTonic={currentKeyDisplay}
+                  currentChordRoot={null}
+                  currentChordPitchClasses={[]}
+                  visualizationMode={circleVisualizationMode === 'hidden' ? 'intervals' : circleVisualizationMode}
+                  includedRoots={availableKeyRoots}
+                  selectedTonic={phrase?.tonic ?? null}
+                  onSelectRoot={onSelectCurrentKey}
+                />
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <div className="exercise-picker-section-head">
+                <div className="settings-section-copy">
+                  <h3>Key Set</h3>
+                  <p>Preset: {currentKeySetLabel}</p>
+                </div>
+                <button
+                  type="button"
+                  className="settings-pill settings-pill-muted"
+                  onClick={onClearKeySet}
+                  disabled={availableKeyRoots.length === 0}
+                >
+                  Clear Key Set
+                </button>
+              </div>
+              <div className="settings-pill-row">
+                {keySetPickerItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`settings-pill ${item.selected ? 'active' : ''}`.trim()}
+                    onClick={() => onSelectKeySet(item.id)}
+                    title={item.description}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <p className="settings-meta">Included keys: {includedKeysLabel}</p>
+            </section>
+          </section>
+        </div>
+      ) : null}
+
+      {contentPickerOpen ? (
+        <div className="exercise-picker-overlay" role="presentation" onClick={() => setOpenPicker(null)}>
+          <section
+            className="exercise-picker-window exercise-picker-window-wide exercise-picker-window-compact exercise-picker-window-content"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose content"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="exercise-picker-header">
+              <div>
+                <p className="eyebrow">Current Filter</p>
+                <h3>Choose content</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button settings-close"
+                onClick={() => setOpenPicker(null)}
+                aria-label="Close content picker"
+              >
+                ×
+              </button>
+            </div>
+            <div className="exercise-picker-content-top">
+              <section className="settings-section exercise-picker-practice-mode">
+                <div className="settings-section-copy">
+                  <h3>Practice Mode</h3>
+                </div>
+                <div className="practice-mode-toggle" role="tablist" aria-label="Practice mode">
+                  <button
+                    type="button"
+                    className={`practice-mode-toggle-option ${exerciseMode === 'guided' ? 'active' : ''}`.trim()}
+                    onClick={() => onSelectMode('guided')}
+                    aria-pressed={exerciseMode === 'guided'}
+                  >
+                    Guided
+                  </button>
+                  <button
+                    type="button"
+                    className={`practice-mode-toggle-option ${exerciseMode === 'improvisation' ? 'active' : ''}`.trim()}
+                    onClick={() => onSelectMode('improvisation')}
+                    aria-pressed={exerciseMode === 'improvisation'}
+                  >
+                    Improvisation
+                  </button>
+                </div>
+                <p className="settings-meta">Switch between strict chord drilling and the scale-guided improvisation path.</p>
+              </section>
+
+              <section className="settings-section">
+                <div className="settings-section-copy">
+                  <h3>{exerciseMode === 'improvisation' ? 'Improvisation Flow' : 'Guided Flow'}</h3>
+                </div>
+                <div
+                  className="practice-mode-toggle practice-mode-toggle-triple"
+                  role="tablist"
+                  aria-label={exerciseMode === 'improvisation' ? 'Improvisation flow' : 'Guided flow'}
+                >
+                  {exerciseMode === 'improvisation' ? (
+                    <>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${improvisationProgressionMode === 'random' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectImprovisationProgressionMode('random')}
+                      >
+                        Random
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${improvisationProgressionMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectImprovisationProgressionMode('targeting_improvement')}
+                      >
+                        Improvement
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${improvisationProgressionMode === 'chained' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectImprovisationProgressionMode('chained')}
+                      >
+                        Chained
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${guidedFlowMode === 'random' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectGuidedFlowMode('random')}
+                      >
+                        Random
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${guidedFlowMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectGuidedFlowMode('targeting_improvement')}
+                      >
+                        Improvement
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${guidedFlowMode === 'musical_chaining' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectGuidedFlowMode('musical_chaining')}
+                      >
+                        Chained
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div className="settings-slider-stack">
+                  <div className="settings-slider-copy">
+                    <strong>Motion</strong>
+                    <span>{chainMovement}% moving</span>
+                  </div>
+                  <input
+                    className="settings-range"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={chainMovement}
+                    onChange={(event) => onSetChainMovement(Number(event.target.value))}
+                    aria-label={exerciseMode === 'improvisation' ? 'Improvisation flow motion' : 'Guided flow motion'}
+                  />
+                  <div className="settings-range-labels" aria-hidden="true">
+                    <span>Repetitive</span>
+                    <span>Moving</span>
+                  </div>
+                  <p className="settings-meta">Repetitive repeats recent or weak material more often. Moving prefers less recent progressions and exits short loops sooner.</p>
+                </div>
+              </section>
+            </div>
+
+            <section className="settings-section">
+              <div className="settings-section-copy">
+                <h3>Curriculum</h3>
+                <p>Select one or more curriculum groups. Selecting the full set collapses to Full Library.</p>
+              </div>
+              <div className="settings-lane-grid">
+                {curriculumPickerItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`settings-lane-card ${item.selected ? 'selected' : ''}`.trim()}
+                    disabled={item.disabled}
+                    onClick={() => onToggleCurriculumPreset(item.id)}
+                  >
+                    <strong>{item.label}</strong>
+                    <span>{item.description}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </section>
+        </div>
+      ) : null}
+
+      {walkthroughActive ? <div className="walkthrough-overlay" aria-hidden="true" /> : null}
+
+      <div className={`practice-workstack ${circleVisualizationMode === 'hidden' ? 'is-circle-hidden' : ''}`.trim()}>
+        <div
+          className="practice-notation-slot is-circle-cycle-target"
+          role="button"
+          tabIndex={0}
+          aria-label={notationStripLabel}
+          title={notationStripLabel}
+          onClick={onToggleCircleVisualizationMode}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onToggleCircleVisualizationMode();
+            }
+          }}
+        >
           <NotationStrip
             phrase={phrase}
             hasCompatiblePhrases={hasCompatiblePhrases}
@@ -730,48 +1175,37 @@ export function PracticeLayout({
           />
         </div>
 
-        <aside className="practice-sidebar">
-          <CircleOfFifths
-            currentTonic={phrase?.tonic ?? null}
-            currentChordRoot={currentToken?.pitchClasses[0] ?? null}
-            currentChordPitchClasses={currentToken?.pitchClasses ?? []}
-            visualizationMode={circleVisualizationMode}
-          />
-        </aside>
+        {circleVisualizationMode !== 'hidden' ? (
+          <aside className="practice-sidebar">
+            <CircleOfFifths
+              currentTonic={phrase?.tonic ?? null}
+              currentChordRoot={currentToken?.pitchClasses[0] ?? null}
+              currentChordPitchClasses={currentToken?.pitchClasses ?? []}
+              visualizationMode={circleVisualizationMode}
+            />
+          </aside>
+        ) : null}
 
         {keyboardVisible ? (
           <div
-            className={`keyboard-lane ${exerciseMode === 'improvisation' ? 'is-interactive' : ''}`.trim()}
-            onClick={exerciseMode === 'improvisation' ? () => setShowKeyboardGuide((value) => !value) : undefined}
-            onKeyDown={exerciseMode === 'improvisation'
+            className={`keyboard-lane ${keyboardLaneIsLabelCycleTarget ? 'is-label-cycle-target' : ''}`.trim()}
+            role={keyboardLaneIsLabelCycleTarget ? 'button' : undefined}
+            tabIndex={keyboardLaneIsLabelCycleTarget ? 0 : undefined}
+            aria-label={keyboardLaneIsLabelCycleTarget ? keyboardLaneLabel : undefined}
+            title={keyboardLaneIsLabelCycleTarget ? keyboardLaneLabel : undefined}
+            onClick={keyboardLaneIsLabelCycleTarget ? onToggleScaleGuideLabelMode : undefined}
+            onKeyDown={keyboardLaneIsLabelCycleTarget
               ? (event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    setShowKeyboardGuide((value) => !value);
+                    onToggleScaleGuideLabelMode();
                   }
                 }
               : undefined}
-            role={exerciseMode === 'improvisation' ? 'button' : undefined}
-            tabIndex={exerciseMode === 'improvisation' ? 0 : undefined}
-            aria-expanded={exerciseMode === 'improvisation' ? showKeyboardGuide : undefined}
-            aria-label={exerciseMode === 'improvisation'
-              ? (showKeyboardGuide ? 'Hide keyboard guide' : 'Show keyboard guide')
-              : undefined}
           >
             {inputMode === 'qwerty' ? (
-              <p className="keyboard-caption">
-                Computer keyboard mode. Z shifts down, X shifts up, and bass clef resets the board to A = C3.
-              </p>
-            ) : null}
-            {exerciseMode === 'improvisation' ? (
-              <div className={`keyboard-guide-panel ${showKeyboardGuide ? 'is-open' : ''}`.trim()}>
-                <p className="keyboard-caption keyboard-guide-copy">
-                  Solid dots mark chord tones. The lower row shows the current scale and the upper row shows the next scale. Use the 123/Eb button to swap interval numbers and note names.
-                </p>
-              </div>
-            ) : null}
-            {inputMode === 'qwerty' ? (
               <QwertyView
+                tonic={phrase?.tonic ?? null}
                 mode={exerciseMode}
                 clef={clef}
                 octaveShift={qwertyOctaveShift}
@@ -786,6 +1220,7 @@ export function PracticeLayout({
               />
             ) : (
               <PianoView
+                tonic={phrase?.tonic ?? null}
                 mode={exerciseMode}
                 clef={clef}
                 minMidi={minMidi}
@@ -803,6 +1238,7 @@ export function PracticeLayout({
           </div>
         ) : null}
       </div>
+
     </section>
   );
 }

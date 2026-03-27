@@ -1,5 +1,5 @@
 import { getContentBlock } from '../../content/curriculum';
-import { circleDistance, rootsForKeySet } from '../../content/keys';
+import { circleDistance, resolveIncludedKeyRoots } from '../../content/keys';
 import { PROGRESSION_LIBRARY } from '../../content/progressions';
 import { RHYTHM_CELLS } from '../../content/rhythmCells';
 import { scaleFamilyForScaleId } from '../../content/scales';
@@ -12,10 +12,10 @@ import type {
   ScaleFamilyId,
   VoicingFamily,
 } from '../../types/music';
-import type { ExerciseConfig, ProgressState, UnlockState } from '../../types/progress';
+import type { ExerciseConfig, ProgressState } from '../../types/progress';
 import { buildChordToken } from '../theory/chordToken';
 import { choosePhraseFocus } from './scheduler';
-import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
+import { orderedVoicingFamilies } from '../voicingFamilies';
 
 interface GeneratePhraseInput {
   config: ExerciseConfig;
@@ -406,11 +406,9 @@ function pickChainedProgression(
 }
 
 function pickImprovementTarget(
-  config: ExerciseConfig,
   progressions: ProgressionDefinition[],
   progress: ProgressState,
   availableRoots: string[],
-  unlocked: UnlockState,
   activeVoicings: Set<VoicingFamily>,
   chainMovement: number,
   random: () => number,
@@ -440,8 +438,8 @@ function pickImprovementTarget(
       }
 
       if (
-        !voicingAvailableInMode(config, unlocked, activeVoicings, parsed.voicingFamily)
-        || !progressionVoicingPool(config, progression, unlocked, activeVoicings).includes(parsed.voicingFamily)
+        !activeVoicings.has(parsed.voicingFamily)
+        || !progressionVoicingPool(progression, activeVoicings).includes(parsed.voicingFamily)
       ) {
         return null;
       }
@@ -486,167 +484,56 @@ function pickImprovementTarget(
   );
 }
 
-function voicingMastery(progress: ProgressState, voicingFamily: VoicingFamily): {
-  attempts: number;
-  accuracy: number;
-} {
-  const stats = Object.entries(progress.nodeMastery)
-    .filter(([tokenId, stat]) => tokenId.includes(`:${voicingFamily}:`) && stat.attempts > 0)
-    .map(([, stat]) => stat);
-
-  if (stats.length === 0) {
-    return {
-      attempts: 0,
-      accuracy: 0,
-    };
-  }
-
-  const attempts = stats.reduce((sum, stat) => sum + stat.attempts, 0);
-  const accuracy = stats.reduce((sum, stat) => sum + stat.accuracyEwma, 0) / stats.length;
-
-  return {
-    attempts,
-    accuracy,
-  };
-}
-
-function autoVoicingChoices(
-  progress: ProgressState,
-  unlocked: UnlockState,
-): Array<{ value: VoicingFamily; weight: number }> {
-  const unlockedPath = VOICING_FAMILIES_IN_ORDER.filter((voicing) => unlocked.voicings.includes(voicing));
-  if (unlockedPath.length === 0) {
-    return [];
-  }
-
-  const currentIndex = unlockedPath.findIndex((voicing) => {
-    const mastery = voicingMastery(progress, voicing);
-    return mastery.attempts < 8 || mastery.accuracy < 0.86;
-  });
-  const resolvedIndex = currentIndex >= 0 ? currentIndex : unlockedPath.length - 1;
-  const current = unlockedPath[resolvedIndex];
-  const next = unlockedPath[resolvedIndex + 1] ?? null;
-  const currentMastery = voicingMastery(progress, current);
-
-  if (!next) {
-    return [{ value: current, weight: 1 }];
-  }
-
-  if (currentMastery.attempts >= 16 && currentMastery.accuracy >= 0.93) {
-    return [
-      { value: current, weight: 1.2 },
-      { value: next, weight: 1.2 },
-    ];
-  }
-
-  if (currentMastery.attempts >= 8 && currentMastery.accuracy >= 0.86) {
-    return [
-      { value: current, weight: 2.4 },
-      { value: next, weight: 1 },
-    ];
-  }
-
-  return [{ value: current, weight: 1 }];
-}
-
-function voicingAvailableInMode(
-  config: ExerciseConfig,
-  unlocked: UnlockState,
-  activeVoicings: Set<VoicingFamily>,
-  voicingFamily: VoicingFamily,
-): boolean {
-  if (!activeVoicings.has(voicingFamily)) {
-    return false;
-  }
-
-  return config.voicingPracticeMode === 'custom'
-    ? true
-    : unlocked.voicings.includes(voicingFamily);
+function availableVoicingPool(progressions: ProgressionDefinition[]): VoicingFamily[] {
+  return orderedVoicingFamilies(
+    unique(progressions.flatMap((progression) => progression.allowedVoicings)),
+  );
 }
 
 function progressionVoicingPool(
-  config: ExerciseConfig,
   progression: ProgressionDefinition,
-  unlocked: UnlockState,
   activeVoicings: Set<VoicingFamily>,
 ): VoicingFamily[] {
-  const candidates = config.voicingPracticeMode === 'custom'
+  const candidates = activeVoicings.size > 0
     ? orderedVoicingFamilies([...activeVoicings])
-    : progression.allowedVoicings;
+    : availableVoicingPool([progression]);
 
-  return candidates.filter((voicing) =>
-    voicingAvailableInMode(config, unlocked, activeVoicings, voicing),
-  );
+  return candidates.filter((voicing) => progression.allowedVoicings.includes(voicing));
 }
 
 function activeVoicingPool(
   config: ExerciseConfig,
-  progress: ProgressState,
-  unlocked: UnlockState,
   progressions: ProgressionDefinition[] = [],
 ): VoicingFamily[] {
-  if (config.voicingPracticeMode === 'custom') {
-    const selected = orderedVoicingFamilies(config.selectedVoicings);
-    if (selected.length > 0) {
-      return selected;
-    }
-
+  const available = availableVoicingPool(progressions);
+  if (available.length === 0) {
     return [];
   }
 
-  const autoPool = autoVoicingChoices(progress, unlocked).map((item) => item.value);
-  if (
-    progressions.length === 0
-    || progressions.some((progression) => progressionSupportsVoicingPool(
-      config,
-      progression,
-      unlocked,
-      new Set(autoPool),
-    ))
-  ) {
-    return autoPool;
-  }
+  const selected = orderedVoicingFamilies(
+    config.selectedVoicings.filter((voicing) => available.includes(voicing)),
+  );
 
-  return orderedVoicingFamilies(
-    progressions.flatMap((progression) =>
-      progression.allowedVoicings.filter((voicing) => unlocked.voicings.includes(voicing)),
-    ),
-  ).slice(0, 1);
+  return selected.length > 0 ? selected : available;
 }
 
 function progressionSupportsVoicingPool(
-  config: ExerciseConfig,
   progression: ProgressionDefinition,
-  unlocked: UnlockState,
   activeVoicings: Set<VoicingFamily>,
 ): boolean {
-  return progressionVoicingPool(config, progression, unlocked, activeVoicings).length > 0;
+  return progressionVoicingPool(progression, activeVoicings).length > 0;
 }
 
 function selectVoicing(
   config: ExerciseConfig,
-  progress: ProgressState,
-  unlocked: UnlockState,
   progression: ProgressionDefinition,
   focus: PhraseFocusType,
   random: () => number,
 ): VoicingFamily {
-  const activeVoicings = new Set(activeVoicingPool(config, progress, unlocked, [progression]));
-  const available = progressionVoicingPool(config, progression, unlocked, activeVoicings);
+  const activeVoicings = new Set(activeVoicingPool(config, [progression]));
+  const available = progressionVoicingPool(progression, activeVoicings);
   if (available.length === 0) {
-    return config.voicingPracticeMode === 'custom'
-      ? (activeVoicings.values().next().value ?? progression.allowedVoicings[0])
-      : progression.allowedVoicings[0];
-  }
-
-  if (config.voicingPracticeMode === 'custom') {
-    return choose(available, random);
-  }
-
-  const weightedAutoChoices = autoVoicingChoices(progress, unlocked)
-    .filter((choice) => available.includes(choice.value));
-  if (weightedAutoChoices.length > 0) {
-    return chooseWeighted(weightedAutoChoices, random);
+    return activeVoicings.values().next().value ?? progression.allowedVoicings[0];
   }
 
   if (focus === 'new_item' && available.includes('inversion_1')) {
@@ -736,13 +623,12 @@ function queryProgressions(config: ExerciseConfig): ProgressionDefinition[] {
   ));
 }
 
-function playableProgressions(config: ExerciseConfig, progress: ProgressState): ProgressionDefinition[] {
-  const unlocked = aggregateUnlockState(progress);
+function playableProgressions(config: ExerciseConfig): ProgressionDefinition[] {
   const baseProgressions = queryProgressions(config);
-  const activeVoicings = new Set(activeVoicingPool(config, progress, unlocked, baseProgressions));
+  const activeVoicings = new Set(activeVoicingPool(config, baseProgressions));
 
   return baseProgressions.filter((progression) =>
-    progressionSupportsVoicingPool(config, progression, unlocked, activeVoicings),
+    progressionSupportsVoicingPool(progression, activeVoicings),
   );
 }
 
@@ -751,33 +637,23 @@ export function matchingProgressionIds(config: ExerciseConfig): string[] {
 }
 
 export function playableProgressionIds(config: ExerciseConfig, progress: ProgressState): string[] {
-  return playableProgressions(config, progress).map((progression) => progression.id);
+  void progress;
+  return playableProgressions(config).map((progression) => progression.id);
 }
 
 export function countMatchingProgressions(config: ExerciseConfig): number {
   return matchingProgressionIds(config).length;
 }
 
-export function activeVoicingFamiliesForPractice(progress: ProgressState): VoicingFamily[] {
-  const unlocked = aggregateUnlockState(progress);
-  return activeVoicingPool(
-    progress.exerciseConfig,
-    progress,
-    unlocked,
-    queryProgressions(progress.exerciseConfig),
-  );
+export function availableVoicingFamiliesForConfig(config: ExerciseConfig): VoicingFamily[] {
+  return availableVoicingPool(queryProgressions(config));
 }
 
-function aggregateUnlockState(progress: ProgressState): UnlockState {
-  const allUnlocks = Object.values(progress.unlocksByLane);
-  return {
-    roots: unique(allUnlocks.flatMap((unlock) => unlock.roots)),
-    modes: unique(allUnlocks.flatMap((unlock) => unlock.modes)),
-    voicings: unique(allUnlocks.flatMap((unlock) => unlock.voicings)),
-    rhythms: unique(allUnlocks.flatMap((unlock) => unlock.rhythms)),
-    borrowedDepth: Math.max(...allUnlocks.map((unlock) => unlock.borrowedDepth), 0),
-    unlockedPackIds: unique(allUnlocks.flatMap((unlock) => unlock.unlockedPackIds)),
-  };
+export function activeVoicingFamiliesForPractice(progress: ProgressState): VoicingFamily[] {
+  return activeVoicingPool(
+    progress.exerciseConfig,
+    queryProgressions(progress.exerciseConfig),
+  );
 }
 
 export function generatePhrase({
@@ -792,17 +668,19 @@ export function generatePhrase({
   progressionOverrideId,
   voicingFamilyOverride,
 }: GeneratePhraseInput): Phrase {
-  const unlocked = aggregateUnlockState(progress);
-  const baseProgressions = playableProgressions(config, progress);
-  const activeVoicings = new Set(activeVoicingPool(config, progress, unlocked, baseProgressions));
+  const baseProgressions = playableProgressions(config);
+  const activeVoicings = new Set(activeVoicingPool(config, baseProgressions));
   const progressions = baseProgressions.filter((progression) =>
-    progressionSupportsVoicingPool(config, progression, unlocked, activeVoicings),
+    progressionSupportsVoicingPool(progression, activeVoicings),
   );
   if (progressions.length === 0) {
     throw new Error('No progressions match the current practice filter.');
   }
 
-  const roots = rootsForKeySet(config.keySet);
+  const roots = resolveIncludedKeyRoots(config.keySet, config.includedKeyRoots);
+  if (roots.length === 0 && !tonicOverride) {
+    throw new Error('No keys are included in the current key set.');
+  }
 
   const focus = focusOverride ?? choosePhraseFocus({
     progress,
@@ -815,11 +693,9 @@ export function generatePhrase({
     : null;
   const improvementTarget = isImprovementFlow(config)
     ? pickImprovementTarget(
-      config,
       progressions,
       progress,
       roots,
-      unlocked,
       activeVoicings,
       config.chainMovement,
       random,
@@ -832,14 +708,21 @@ export function generatePhrase({
     ?? improvementTarget?.progression
     ?? (isRandomFlow(config) ? choose(progressions, random) : pickProgressionForFocus(progressions, focus, progress, random));
   const selectionPool = chainSource ? chainedSelectionPool(progressions, chainSource) : progressions;
-  const progression = pickProgressionWithNovelty(
-    selectionPool,
-    progressions,
-    preferredProgression,
-    recentProgressionIds(progressions, progress, previousPhrase),
-    config.chainMovement,
-    random,
-  );
+  const progression = progressionOverrideId
+    ? (progressions.find((candidate) => candidate.id === progressionOverrideId)
+      ?? preferredProgression)
+    : pickProgressionWithNovelty(
+      selectionPool,
+      progressions,
+      preferredProgression,
+      recentProgressionIds(progressions, progress, previousPhrase),
+      config.chainMovement,
+      random,
+    );
+
+  if (!progression) {
+    throw new Error('The requested progression is not available for the current practice filter.');
+  }
   const lane = progression.lane;
   const tonic = tonicOverride
     ?? (chainSource
@@ -851,24 +734,24 @@ export function generatePhrase({
   const previousPhraseLastToken = previousPhraseLastEvent
     ? chainSource?.tokensById[previousPhraseLastEvent.chordTokenId]
     : null;
-  const progressionVoicings = progressionVoicingPool(config, progression, unlocked, activeVoicings);
+  const progressionVoicings = progressionVoicingPool(progression, activeVoicings);
   const carryForwardVoicingFamily = previousPhraseLastToken
-    && voicingAvailableInMode(config, unlocked, activeVoicings, previousPhraseLastToken.voicingFamily)
+    && activeVoicings.has(previousPhraseLastToken.voicingFamily)
     && progressionVoicings.includes(previousPhraseLastToken.voicingFamily)
     ? previousPhraseLastToken.voicingFamily
     : null;
   const voicingFamily = carryForwardVoicingFamily
     ?? (voicingFamilyOverride
-      && voicingAvailableInMode(config, unlocked, activeVoicings, voicingFamilyOverride)
+      && activeVoicings.has(voicingFamilyOverride)
       && progressionVoicings.includes(voicingFamilyOverride)
       ? voicingFamilyOverride
       : null)
     ?? (improvementTarget
       && progressionVoicings.includes(improvementTarget.voicingFamily)
-      && voicingAvailableInMode(config, unlocked, activeVoicings, improvementTarget.voicingFamily)
+      && activeVoicings.has(improvementTarget.voicingFamily)
       ? improvementTarget.voicingFamily
       : null)
-    ?? selectVoicing(config, progress, unlocked, progression, focus, random);
+    ?? selectVoicing(config, progression, focus, random);
 
   const tokensById: Phrase['tokensById'] = {};
   const events: Phrase['events'] = [];
@@ -941,18 +824,23 @@ export interface PotentialPhraseVariant {
 }
 
 export function listPotentialPhraseVariants(progress: ProgressState): PotentialPhraseVariant[] {
-  const unlocked = aggregateUnlockState(progress);
-  const progressions = playableProgressions(progress.exerciseConfig, progress);
-  const activeVoicings = new Set(activeVoicingPool(progress.exerciseConfig, progress, unlocked, progressions));
+  const progressions = playableProgressions(progress.exerciseConfig);
+  const activeVoicings = new Set(activeVoicingPool(progress.exerciseConfig, progressions));
   if (progressions.length === 0) {
     return [];
   }
 
-  const roots = rootsForKeySet(progress.exerciseConfig.keySet);
+  const roots = resolveIncludedKeyRoots(
+    progress.exerciseConfig.keySet,
+    progress.exerciseConfig.includedKeyRoots,
+  );
+  if (roots.length === 0) {
+    return [];
+  }
   const variants: PotentialPhraseVariant[] = [];
 
   progressions.forEach((progression) => {
-    const voicings = progressionVoicingPool(progress.exerciseConfig, progression, unlocked, activeVoicings);
+    const voicings = progressionVoicingPool(progression, activeVoicings);
 
     roots.forEach((tonic) => {
       voicings.forEach((voicingFamily) => {

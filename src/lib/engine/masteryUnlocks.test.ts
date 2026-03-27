@@ -53,7 +53,7 @@ describe('mastery + unlocks', () => {
     const { progress: unlocked, decision } = applyUnlockDecision(progress, 'ionian');
 
     expect(decision.unlocked).toBe(true);
-    expect(['root', 'voicing', 'borrowed']).toContain(decision.axis);
+    expect(decision.axis).toBe('root');
 
     const roots = unlocked.unlocksByLane.ionian.roots;
     expect(roots.length).toBe(progress.unlocksByLane.ionian.roots.length + 1);

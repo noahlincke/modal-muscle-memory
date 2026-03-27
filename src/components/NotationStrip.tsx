@@ -165,6 +165,31 @@ interface ScaleDisplay {
   alternateLabels: string[];
 }
 
+function ScaleHudRow({ label, scaleDisplay, variant }: {
+  label: 'Now' | 'Next';
+  scaleDisplay: ScaleDisplay;
+  variant: 'now' | 'next';
+}) {
+  const alternateText = scaleDisplay.alternateLabels.join(' / ');
+
+  return (
+    <p className={`notation-scale-row ${variant}`.trim()}>
+      <span className="notation-scale-tag">{label}</span>
+      <span className="notation-scale-summary">
+        <span className="notation-scale-main">
+          <strong className="notation-scale-root">{scaleDisplay.rootPitchClass}</strong>
+          {scaleDisplay.primaryLabel ? <strong className="notation-scale-primary">{scaleDisplay.primaryLabel}</strong> : null}
+        </span>
+        {alternateText ? (
+          <span className="notation-scale-alternates">
+            {scaleDisplay.primaryLabel ? `/ ${alternateText}` : alternateText}
+          </span>
+        ) : null}
+      </span>
+    </p>
+  );
+}
+
 function scaleDisplayForStep(phrase: Phrase, stepIndex: number): ScaleDisplay | null {
   const step = phrase.progression.steps[stepIndex];
   if (!step) {
@@ -450,20 +475,8 @@ export function NotationStrip({
     <div className={`notation-strip ${exerciseMode === 'improvisation' ? `improvisation ${clef}` : ''}`.trim()}>
       {exerciseMode === 'improvisation' && currentScaleDisplay ? (
         <div className="notation-scale-hud">
-          {nextScaleDisplay ? (
-            <p className="notation-scale-row next">
-              <strong>Next:</strong>{' '}
-              <strong className="notation-scale-root">{nextScaleDisplay.rootPitchClass}</strong>{' '}
-              {nextScaleDisplay.primaryLabel ? <strong className="notation-scale-primary">{nextScaleDisplay.primaryLabel}</strong> : null}
-              {nextScaleDisplay.alternateLabels.length > 0 ? ` / ${nextScaleDisplay.alternateLabels.join(' / ')}` : null}
-            </p>
-          ) : null}
-          <p className="notation-scale-row now">
-            <strong>Now:</strong>{' '}
-            <strong className="notation-scale-root">{currentScaleDisplay.rootPitchClass}</strong>{' '}
-            {currentScaleDisplay.primaryLabel ? <strong className="notation-scale-primary">{currentScaleDisplay.primaryLabel}</strong> : null}
-            {currentScaleDisplay.alternateLabels.length > 0 ? ` / ${currentScaleDisplay.alternateLabels.join(' / ')}` : null}
-          </p>
+          {nextScaleDisplay ? <ScaleHudRow label="Next" scaleDisplay={nextScaleDisplay} variant="next" /> : null}
+          <ScaleHudRow label="Now" scaleDisplay={currentScaleDisplay} variant="now" />
         </div>
       ) : null}
       <div className="notation-strip-canvas" ref={containerRef} aria-label="Notation strip" />

@@ -8,6 +8,7 @@ import {
   normalizeScaleFamilyIds,
   resolveLaneFromCurriculumPresetId,
 } from '../../content/curriculum';
+import { normalizeIncludedKeyRoots, rootsForKeySet } from '../../content/keys';
 import { getPackForLane } from '../../content/packs';
 import type { ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
 import type {
@@ -21,7 +22,7 @@ import type {
 import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
@@ -62,6 +63,7 @@ function defaultExerciseConfig(): ExerciseConfig {
     enabledScaleFamilyIds: [],
     enabledProgressionFamilyTags: [],
     keySet: 'max_2_accidentals',
+    includedKeyRoots: rootsForKeySet('max_2_accidentals'),
     rhythm: ['all'],
     voicingPracticeMode: 'auto',
     selectedVoicings: [],
@@ -120,6 +122,22 @@ function normalizeSelectedVoicings(value: unknown): VoicingFamily[] {
   );
 }
 
+function normalizeScaleGuideLabelMode(value: unknown): UserSettings['scaleGuideLabelMode'] {
+  if (value === 'note_names' || value === 'hidden') {
+    return value;
+  }
+
+  return 'degrees';
+}
+
+function normalizeCircleVisualizationMode(value: unknown): UserSettings['circleVisualizationMode'] {
+  if (value === 'chord_arrows' || value === 'hidden') {
+    return value;
+  }
+
+  return 'intervals';
+}
+
 function defaultSettings(): UserSettings {
   return {
     tempo: 78,
@@ -134,7 +152,6 @@ function defaultSettings(): UserSettings {
     midiInputId: null,
     enableReferencePlayback: true,
     enableComputerKeyboardAudio: true,
-    keyboardFriendlyVoicings: true,
     circleVisualizationMode: 'intervals',
     immersiveMode: false,
   };
@@ -219,11 +236,15 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
   const curriculumPresetId = normalizeCurriculumPresetId(inferredPresetId);
   const presetDefaults = applyCurriculumPreset(defaults.exerciseConfig, curriculumPresetId);
   const resolvedLane = resolveLaneFromCurriculumPresetId(curriculumPresetId);
+  const keySet = normalizeKeySetId(raw.exerciseConfig?.keySet, presetDefaults.keySet);
 
   const unlocks = ALL_LANES.reduce<Record<ModeLane, UnlockState>>((acc, lane) => {
     acc[lane] = mergeUnlockState(lane, raw.unlocksByLane?.[lane]);
     return acc;
   }, {} as Record<ModeLane, UnlockState>);
+  const rawSettingsSource = (raw.settings ?? {}) as Record<string, unknown>;
+  const rawSettings = { ...rawSettingsSource };
+  delete rawSettings.keyboardFriendlyVoicings;
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -244,7 +265,11 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
         raw.exerciseConfig?.enabledProgressionFamilyTags,
         presetDefaults.enabledProgressionFamilyTags,
       ),
-      keySet: normalizeKeySetId(raw.exerciseConfig?.keySet, presetDefaults.keySet),
+      keySet,
+      includedKeyRoots: normalizeIncludedKeyRoots(
+        raw.exerciseConfig?.includedKeyRoots,
+        keySet === 'custom' ? [] : rootsForKeySet(keySet),
+      ),
       rhythm: normalizeRhythmSelection(raw.exerciseConfig?.rhythm),
       voicingPracticeMode: normalizeVoicingPracticeMode(raw.exerciseConfig?.voicingPracticeMode),
       selectedVoicings: normalizeSelectedVoicings(raw.exerciseConfig?.selectedVoicings),
@@ -254,7 +279,9 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
     },
     settings: {
       ...defaults.settings,
-      ...raw.settings,
+      ...rawSettings,
+      scaleGuideLabelMode: normalizeScaleGuideLabelMode(rawSettings.scaleGuideLabelMode),
+      circleVisualizationMode: normalizeCircleVisualizationMode(rawSettings.circleVisualizationMode),
     },
     unlocksByLane: unlocks,
     nodeMastery: raw.nodeMastery ?? {},

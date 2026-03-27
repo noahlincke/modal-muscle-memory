@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONTENT_BLOCKS,
   CURRICULUM_PRESETS,
+  deriveFamiliesForContentBlocks,
   KEY_SET_OPTIONS,
   PROGRESSION_FAMILY_OPTIONS,
   SCALE_FAMILY_OPTIONS,
@@ -58,5 +59,14 @@ describe('content catalog', () => {
     KEY_SET_OPTIONS.forEach((option) => {
       expect(rootsForKeySet(option.id).length).toBeGreaterThan(0);
     });
+  });
+
+  it('derives matching family filters for the full library content blocks', () => {
+    const derived = deriveFamiliesForContentBlocks(CONTENT_BLOCKS.map((block) => block.id));
+    const fullLibraryPreset = CURRICULUM_PRESETS.find((preset) => preset.id === 'full_library');
+
+    expect(fullLibraryPreset).toBeDefined();
+    expect(derived.enabledScaleFamilyIds.sort()).toEqual([...fullLibraryPreset!.enabledScaleFamilyIds].sort());
+    expect(derived.enabledProgressionFamilyTags.sort()).toEqual([...fullLibraryPreset!.enabledProgressionFamilyTags].sort());
   });
 });

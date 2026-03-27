@@ -22,13 +22,6 @@ describe('phraseGenerator', () => {
   it('can generate guide-tone preset phrases with guide-tone and rootless families', () => {
     const progress = createDefaultProgressState();
     progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'guide_tone_foundations');
-    progress.unlocksByLane.ionian.voicings = [
-      'guide_tone_37',
-      'guide_tone_73',
-      'rootless_379',
-      'rootless_7313',
-      'shell_137',
-    ];
 
     const phrase = generatePhrase({
       config: progress.exerciseConfig,
@@ -50,6 +43,19 @@ describe('phraseGenerator', () => {
       'guide_tone_rootless_resolution',
       'guide_tone_rootless_circle',
     ]).toContain(phrase.progressionId);
+  });
+
+  it('keeps all guide-tone foundation progressions playable before any voicing unlocks', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'guide_tone_foundations');
+
+    expect(playableProgressionIds(progress.exerciseConfig, progress)).toEqual([
+      'guide_tone_ii_v_i',
+      'guide_tone_turnaround_cycle',
+      'guide_tone_circle_fragment',
+      'guide_tone_rootless_resolution',
+      'guide_tone_rootless_circle',
+    ]);
   });
 
   it('generates valid phrases with linked tokens', () => {
@@ -167,7 +173,6 @@ describe('phraseGenerator', () => {
 
   it('counts unique progressions without multiplying rhythm variants', () => {
     const progress = createDefaultProgressState();
-    progress.exerciseConfig.voicingPracticeMode = 'custom';
     progress.exerciseConfig.selectedVoicings = ['shell_137'];
 
     const allRhythmVariants = listPotentialPhraseVariants(progress);
@@ -303,6 +308,54 @@ describe('phraseGenerator', () => {
     }
 
     expect(tonics.size).toBeGreaterThan(1);
+  });
+
+  it('respects a custom included key set when generating phrases', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.keySet = 'custom';
+    progress.exerciseConfig.includedKeyRoots = ['Bb'];
+
+    const phrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(23),
+    });
+
+    expect(phrase.tonic).toBe('Bb');
+  });
+
+  it('keeps the requested progression when a tonic override is also provided', () => {
+    const progress = createDefaultProgressState();
+
+    const initialPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(13),
+    });
+
+    const keyedPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      progressionOverrideId: initialPhrase.progressionId,
+      tonicOverride: 'G',
+      voicingFamilyOverride: initialPhrase.tokensById[initialPhrase.events[0].chordTokenId].voicingFamily,
+      random: seededRandom(41),
+    });
+
+    expect(keyedPhrase.progressionId).toBe(initialPhrase.progressionId);
+    expect(keyedPhrase.tonic).toBe('G');
+  });
+
+  it('returns no potential phrase variants when the custom key set is empty', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.keySet = 'custom';
+    progress.exerciseConfig.includedKeyRoots = [];
+
+    expect(listPotentialPhraseVariants(progress)).toEqual([]);
+    expect(countPotentialProgressions(progress)).toBe(0);
   });
 
   it('can follow chain targets in guided mode when flow motion is high', () => {
@@ -553,31 +606,25 @@ describe('phraseGenerator', () => {
     expect(nextPhrase.tonic).toBe(weakerPhrase.tonic);
   });
 
-  it('lets custom voicings apply beyond the progression recommendation tags', () => {
+  it('filters progressions to the selected voicings that the current content actually supports', () => {
     const progress = createDefaultProgressState();
     progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'modal_colors');
-    progress.exerciseConfig.voicingPracticeMode = 'custom';
     progress.exerciseConfig.selectedVoicings = ['inversion_1'];
     progress.unlocksByLane.dorian.roots = ['D'];
-    progress.unlocksByLane.dorian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
     progress.unlocksByLane.mixolydian.roots = ['G'];
-    progress.unlocksByLane.mixolydian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
     progress.unlocksByLane.lydian.roots = ['F'];
-    progress.unlocksByLane.lydian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
     progress.unlocksByLane.phrygian.roots = ['E'];
-    progress.unlocksByLane.phrygian.voicings = ['shell_137', 'closed_7th', 'inversion_1'];
 
     const ids = playableProgressionIds(progress.exerciseConfig, progress);
 
     expect(ids).toContain('dorian_modal_pivot');
-    expect(ids).toContain('phrygian_pedal_turn');
+    expect(ids).not.toContain('phrygian_pedal_turn');
   });
 
-  it('can generate full-library custom phrases with six-nine voicings', () => {
+  it('can generate guide-tone rootless phrases before rootless voicings are unlocked', () => {
     const progress = createDefaultProgressState();
-    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'full_library');
-    progress.exerciseConfig.voicingPracticeMode = 'custom';
-    progress.exerciseConfig.selectedVoicings = ['six_nine'];
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'guide_tone_foundations');
+    progress.exerciseConfig.selectedVoicings = ['rootless_379'];
 
     const phrase = generatePhrase({
       config: progress.exerciseConfig,
@@ -588,6 +635,7 @@ describe('phraseGenerator', () => {
 
     const firstToken = phrase.tokensById[phrase.events[0].chordTokenId];
 
-    expect(firstToken.voicingFamily).toBe('six_nine');
+    expect(firstToken.voicingFamily).toBe('rootless_379');
+    expect(['guide_tone_rootless_resolution', 'guide_tone_rootless_circle']).toContain(phrase.progressionId);
   });
 });
