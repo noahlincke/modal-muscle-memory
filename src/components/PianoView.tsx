@@ -129,6 +129,21 @@ function findNearestMidiAtOrBelow(targetMidi: number, pitchClass: string, minMid
   return null;
 }
 
+function findNearestMidiClosest(targetMidi: number, pitchClass: string, minMidi: number, maxMidi: number): number | null {
+  const below = findNearestMidiAtOrBelow(targetMidi, pitchClass, minMidi, maxMidi);
+  const above = findNearestMidiAtOrAbove(targetMidi, pitchClass, minMidi, maxMidi);
+
+  if (below === null) {
+    return above;
+  }
+
+  if (above === null) {
+    return below;
+  }
+
+  return Math.abs(targetMidi - below) <= Math.abs(above - targetMidi) ? below : above;
+}
+
 function buildGuideMarkers(
   guideLabels: Record<string, string>,
   clef: 'treble' | 'bass',
@@ -145,13 +160,10 @@ function buildGuideMarkers(
   const chordLow = targetNotes.length > 0 ? Math.min(...targetNotes) : 60;
   const chordHigh = targetNotes.length > 0 ? Math.max(...targetNotes) : 60;
   const anchorSearchStart = clef === 'bass' ? chordHigh + 12 : chordLow - 12;
-  const anchorMidi = clef === 'bass'
-    ? findNearestMidiAtOrAbove(anchorSearchStart, anchorPitchClass, minMidi, maxMidi)
-    : findNearestMidiAtOrBelow(anchorSearchStart, anchorPitchClass, minMidi, maxMidi);
-  const fallbackAnchorMidi = clef === 'bass'
-    ? findNearestMidiAtOrAbove(minMidi, anchorPitchClass, minMidi, maxMidi)
-    : findNearestMidiAtOrBelow(maxMidi, anchorPitchClass, minMidi, maxMidi);
-  const startMidi = anchorMidi ?? fallbackAnchorMidi;
+  const startMidi = findNearestMidiClosest(anchorSearchStart, anchorPitchClass, minMidi, maxMidi)
+    ?? (clef === 'bass'
+      ? findNearestMidiAtOrAbove(minMidi, anchorPitchClass, minMidi, maxMidi)
+      : findNearestMidiAtOrBelow(maxMidi, anchorPitchClass, minMidi, maxMidi));
 
   if (startMidi === null) {
     return [];
@@ -200,7 +212,6 @@ export function PianoView({
   }, [minMidi, maxMidi]);
 
   const targetSet = new Set([...targetNotes].slice(0, 4).sort((a, b) => a - b));
-  const chordToneSet = useMemo(() => new Set(chordTonePitchClasses), [chordTonePitchClasses]);
   const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
   const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
   const allowedImprovisationSet = new Set([
@@ -290,11 +301,7 @@ export function PianoView({
     [nextGuideMarkers],
   );
   function markerKindForMidi(midi: number): MarkerKind {
-    if (mode === 'guided') {
-      return targetSet.has(midi) ? 'chord' : null;
-    }
-
-    return currentGuideMidiSet.has(midi) && chordToneSet.has(midiToPitchClass(midi)) ? 'chord' : null;
+    return targetSet.has(midi) ? 'chord' : null;
   }
 
   function toneClass(active: boolean, midi: number): string {
