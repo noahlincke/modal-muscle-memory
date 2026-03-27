@@ -64,7 +64,7 @@ function defaultExerciseConfig(): ExerciseConfig {
     enabledProgressionFamilyTags: [],
     keySet: 'max_2_accidentals',
     includedKeyRoots: rootsForKeySet('max_2_accidentals'),
-    rhythm: ['all'],
+    rhythm: ['block_whole', 'halves'],
     voicingPracticeMode: 'auto',
     selectedVoicings: [],
     guidedFlowMode: 'targeting_improvement',
@@ -78,9 +78,13 @@ function normalizeImprovisationAdvanceMode(value: unknown): ExerciseConfig['impr
   return value === 'footpedal_release' ? 'footpedal_release' : 'immediate';
 }
 
+function defaultRhythmSelection(): RhythmSelection {
+  return [...defaultExerciseConfig().rhythm];
+}
+
 function normalizeRhythmSelection(value: unknown): RhythmSelection {
   if (!Array.isArray(value)) {
-    return ['all'];
+    return defaultRhythmSelection();
   }
 
   const valid = [...new Set(value.filter((item): item is RhythmCellId | 'all' => RHYTHM_FILTER_IDS.includes(item as RhythmCellId | 'all')))];
@@ -90,7 +94,7 @@ function normalizeRhythmSelection(value: unknown): RhythmSelection {
 
   const specifics = valid.filter((item): item is RhythmCellId => item !== 'all');
   if (specifics.length === 0) {
-    return ['all'];
+    return defaultRhythmSelection();
   }
 
   if (SPECIFIC_RHYTHM_IDS.every((id) => specifics.includes(id))) {

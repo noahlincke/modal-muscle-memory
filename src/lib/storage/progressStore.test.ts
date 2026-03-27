@@ -7,6 +7,29 @@ import {
 } from './progressStore';
 
 describe('progressStore', () => {
+  it('uses whole and half notes as the default rhythm filter', () => {
+    const progress = createDefaultProgressState();
+
+    expect(progress.exerciseConfig.rhythm).toEqual(['block_whole', 'halves']);
+  });
+
+  it('defaults missing saved rhythm settings to whole and half notes', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        exerciseConfig: {
+          mode: 'guided',
+          curriculumPresetId: 'major_foundations',
+          lane: 'ionian',
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.exerciseConfig.rhythm).toEqual(['block_whole', 'halves']);
+  });
+
   it('persists and reloads progress', () => {
     const progress = createDefaultProgressState();
     progress.exerciseConfig.lane = 'aeolian';

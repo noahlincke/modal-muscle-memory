@@ -289,17 +289,12 @@ export function PianoView({
     () => new Set(nextGuideMarkers.map((marker) => marker.midi)),
     [nextGuideMarkers],
   );
-  const labeledGuideMidiSet = useMemo(
-    () => new Set([...currentGuideMidiSet, ...nextGuideMidiSet]),
-    [currentGuideMidiSet, nextGuideMidiSet],
-  );
-
   function markerKindForMidi(midi: number): MarkerKind {
     if (mode === 'guided') {
       return targetSet.has(midi) ? 'chord' : null;
     }
 
-    return labeledGuideMidiSet.has(midi) && chordToneSet.has(midiToPitchClass(midi)) ? 'chord' : null;
+    return currentGuideMidiSet.has(midi) && chordToneSet.has(midiToPitchClass(midi)) ? 'chord' : null;
   }
 
   function toneClass(active: boolean, midi: number): string {
