@@ -274,10 +274,6 @@ export function QwertyView({
     () => new Set(nextGuideMarkers.map((marker) => marker.midi)),
     [nextGuideMarkers],
   );
-  const labeledGuideMidiSet = useMemo(
-    () => new Set([...currentGuideMidiSet, ...nextGuideMidiSet]),
-    [currentGuideMidiSet, nextGuideMidiSet],
-  );
 
   const stageWidth = `${whiteKeys.length * WHITE_KEY_WIDTH}px`;
 
@@ -368,7 +364,7 @@ export function QwertyView({
             const pitchClass = midiToPitchClass(key.midi);
             const hasTarget = mode === 'guided'
               ? targetSet.has(key.midi)
-              : labeledGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
+              : currentGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
             const guideStyle = keyGuideStyle(key.midi);
             const keyClasses = [
               'piano-key',
@@ -411,7 +407,7 @@ export function QwertyView({
             const pitchClass = midiToPitchClass(key.midi);
             const hasTarget = mode === 'guided'
               ? targetSet.has(key.midi)
-              : labeledGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
+              : currentGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
             const guideStyle = keyGuideStyle(key.midi);
             const keyClasses = [
               'piano-key',
