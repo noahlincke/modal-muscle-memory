@@ -116,6 +116,21 @@ function findNearestMidiAtOrBelow(keys: RenderKey[], startMidi: number, pitchCla
   return match?.midi ?? null;
 }
 
+function findNearestMidiClosest(keys: RenderKey[], targetMidi: number, pitchClass: string): number | null {
+  const below = findNearestMidiAtOrBelow(keys, targetMidi, pitchClass);
+  const above = findNearestMidiAtOrAbove(keys, targetMidi, pitchClass);
+
+  if (below === null) {
+    return above;
+  }
+
+  if (above === null) {
+    return below;
+  }
+
+  return Math.abs(targetMidi - below) <= Math.abs(above - targetMidi) ? below : above;
+}
+
 function buildGuideMarkers(
   guideLabels: Record<string, string>,
   clef: 'treble' | 'bass',
@@ -131,12 +146,10 @@ function buildGuideMarkers(
   const chordLow = targetNotes.length > 0 ? Math.min(...targetNotes) : 60;
   const chordHigh = targetNotes.length > 0 ? Math.max(...targetNotes) : 60;
   const anchorSearchStart = clef === 'bass' ? chordHigh + 12 : chordLow - 12;
-  const startMidi = (clef === 'bass'
-    ? findNearestMidiAtOrAbove(keys, anchorSearchStart, anchorPitchClass)
-    : findNearestMidiAtOrBelow(keys, anchorSearchStart, anchorPitchClass))
+  const startMidi = findNearestMidiClosest(keys, anchorSearchStart, anchorPitchClass)
     ?? (clef === 'bass'
-      ? findNearestMidiAtOrBelow(keys, keys[keys.length - 1]?.midi ?? anchorSearchStart, anchorPitchClass)
-      : findNearestMidiAtOrAbove(keys, keys[0]?.midi ?? anchorSearchStart, anchorPitchClass));
+      ? findNearestMidiAtOrAbove(keys, keys[0]?.midi ?? anchorSearchStart, anchorPitchClass)
+      : findNearestMidiAtOrBelow(keys, keys[keys.length - 1]?.midi ?? anchorSearchStart, anchorPitchClass));
 
   if (startMidi === null) {
     return [];
@@ -249,7 +262,6 @@ export function QwertyView({
 
   const keys = useMemo(() => [...whiteKeys, ...blackKeys].sort((a, b) => a.midi - b.midi), [whiteKeys, blackKeys]);
   const targetSet = new Set(targetNotes);
-  const chordToneSet = useMemo(() => new Set(chordTonePitchClasses), [chordTonePitchClasses]);
   const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
   const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
   const allowedImprovisationSet = new Set([
@@ -361,10 +373,7 @@ export function QwertyView({
         <div className="piano-white-row">
           {whiteKeys.map((key) => {
             const active = activeNotes.has(key.midi);
-            const pitchClass = midiToPitchClass(key.midi);
-            const hasTarget = mode === 'guided'
-              ? targetSet.has(key.midi)
-              : currentGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
+            const hasTarget = targetSet.has(key.midi);
             const guideStyle = keyGuideStyle(key.midi);
             const keyClasses = [
               'piano-key',
@@ -404,10 +413,7 @@ export function QwertyView({
         <div className="piano-black-row">
           {blackKeys.map((key) => {
             const active = activeNotes.has(key.midi);
-            const pitchClass = midiToPitchClass(key.midi);
-            const hasTarget = mode === 'guided'
-              ? targetSet.has(key.midi)
-              : currentGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
+            const hasTarget = targetSet.has(key.midi);
             const guideStyle = keyGuideStyle(key.midi);
             const keyClasses = [
               'piano-key',

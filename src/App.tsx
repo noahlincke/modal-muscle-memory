@@ -2122,18 +2122,11 @@ export default function App() {
   );
 
   const keyboardRange = useMemo(() => {
-    if (progress.exerciseConfig.mode !== 'improvisation') {
-      return {
-        min: progress.settings.registerMin,
-        max: progress.settings.registerMax,
-      };
-    }
-
     return {
       min: 21,
       max: 108,
     };
-  }, [progress.exerciseConfig.mode, progress.settings.registerMax, progress.settings.registerMin]);
+  }, []);
 
   const allowedRoots = useMemo(
     () => resolveIncludedKeyRoots(progress.exerciseConfig.keySet, progress.exerciseConfig.includedKeyRoots),
