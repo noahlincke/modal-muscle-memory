@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
 import { Midi } from 'tonal';
+import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import type { ExerciseMode } from '../types/music';
 import { midiToPitchClass } from '../lib/theory/noteUtils';
 
 interface PianoViewProps {
+  tonic: string | null;
   mode: ExerciseMode;
   clef: 'treble' | 'bass';
   minMidi: number;
@@ -21,11 +23,13 @@ interface PianoViewProps {
 interface RenderKey {
   midi: number;
   noteName: string;
+  left: number;
+  right: number;
   centerX: number;
 }
 
 interface RenderBlackKey extends RenderKey {
-  left: number;
+  right: number;
 }
 
 interface GuideMarker {
@@ -94,6 +98,19 @@ function orderedGuideEntries(guideLabels: Record<string, string>): Array<[string
   return Object.entries(guideLabels);
 }
 
+function withAlpha(hexColor: string, alpha: number): string {
+  const match = hexColor.match(/^#([0-9a-f]{6})$/i);
+  if (!match) {
+    return hexColor;
+  }
+
+  const value = match[1];
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 function findNearestMidiAtOrAbove(targetMidi: number, pitchClass: string, minMidi: number, maxMidi: number): number | null {
   for (let midi = Math.max(minMidi, targetMidi); midi <= maxMidi; midi += 1) {
     if (midiToPitchClass(midi) === pitchClass) {
@@ -158,6 +175,7 @@ function buildGuideMarkers(
 }
 
 export function PianoView({
+  tonic,
   mode,
   clef,
   minMidi,
@@ -182,24 +200,29 @@ export function PianoView({
   }, [minMidi, maxMidi]);
 
   const targetSet = new Set([...targetNotes].slice(0, 4).sort((a, b) => a - b));
+  const chordToneSet = useMemo(() => new Set(chordTonePitchClasses), [chordTonePitchClasses]);
+  const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
+  const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
   const allowedImprovisationSet = new Set([
     ...chordTonePitchClasses,
     ...currentScalePitchClasses,
     ...nextScalePitchClasses,
   ]);
 
-  const whiteKeys: RenderKey[] = useMemo(() => notes
+  const whiteKeysBase: RenderKey[] = useMemo(() => notes
     .filter((midi) => !isBlackKey(midi))
     .map((midi, index) => ({
       midi,
       noteName: Midi.midiToNoteName(midi, { sharps: true }) ?? `M${midi}`,
+      left: index * WHITE_KEY_WIDTH,
+      right: (index + 1) * WHITE_KEY_WIDTH,
       centerX: (index * WHITE_KEY_WIDTH) + (WHITE_KEY_WIDTH / 2),
     })), [notes]);
 
   const blackKeys: RenderBlackKey[] = useMemo(() => notes
     .filter((midi) => isBlackKey(midi))
     .map((midi) => {
-      const previousWhiteIndex = whiteKeys.reduce((index, key, candidateIndex) => {
+      const previousWhiteIndex = whiteKeysBase.reduce((index, key, candidateIndex) => {
         if (key.midi < midi) {
           return candidateIndex;
         }
@@ -214,10 +237,39 @@ export function PianoView({
         midi,
         noteName: Midi.midiToNoteName(midi, { sharps: true }) ?? `M${midi}`,
         left,
+        right: left + BLACK_KEY_WIDTH,
         centerX: left + (BLACK_KEY_WIDTH / 2),
       };
     })
-    .filter((key) => key.left > 0 && key.left < (whiteKeys.length * WHITE_KEY_WIDTH)), [notes, whiteKeys]);
+    .filter((key) => key.left > 0 && key.left < (whiteKeysBase.length * WHITE_KEY_WIDTH)), [notes, whiteKeysBase]);
+
+  const whiteKeys: RenderKey[] = useMemo(() => whiteKeysBase.map((key) => {
+    const midpoint = key.left + (WHITE_KEY_WIDTH / 2);
+    let visibleLeft = key.left;
+    let visibleRight = key.right;
+
+    blackKeys.forEach((blackKey) => {
+      const overlapsWhiteKey = blackKey.left < key.right && blackKey.right > key.left;
+      if (!overlapsWhiteKey) {
+        return;
+      }
+
+      if (blackKey.centerX < midpoint) {
+        visibleLeft = Math.max(visibleLeft, blackKey.right);
+      } else {
+        visibleRight = Math.min(visibleRight, blackKey.left);
+      }
+    });
+
+    const centerX = visibleRight > visibleLeft
+      ? (visibleLeft + visibleRight) / 2
+      : key.centerX;
+
+    return {
+      ...key,
+      centerX,
+    };
+  }), [blackKeys, whiteKeysBase]);
 
   const guideKeys = useMemo(() => [...whiteKeys, ...blackKeys].sort((a, b) => a.midi - b.midi), [whiteKeys, blackKeys]);
 
@@ -229,13 +281,25 @@ export function PianoView({
     () => buildGuideMarkers(currentScaleGuideLabels, clef, minMidi, maxMidi, targetNotes),
     [clef, currentScaleGuideLabels, maxMidi, minMidi, targetNotes],
   );
+  const currentGuideMidiSet = useMemo(
+    () => new Set(currentGuideMarkers.map((marker) => marker.midi)),
+    [currentGuideMarkers],
+  );
+  const nextGuideMidiSet = useMemo(
+    () => new Set(nextGuideMarkers.map((marker) => marker.midi)),
+    [nextGuideMarkers],
+  );
+  const labeledGuideMidiSet = useMemo(
+    () => new Set([...currentGuideMidiSet, ...nextGuideMidiSet]),
+    [currentGuideMidiSet, nextGuideMidiSet],
+  );
 
   function markerKindForMidi(midi: number): MarkerKind {
     if (mode === 'guided') {
       return targetSet.has(midi) ? 'chord' : null;
     }
 
-    return targetSet.has(midi) ? 'chord' : null;
+    return labeledGuideMidiSet.has(midi) && chordToneSet.has(midiToPitchClass(midi)) ? 'chord' : null;
   }
 
   function toneClass(active: boolean, midi: number): string {
@@ -244,6 +308,31 @@ export function PianoView({
       return targetSet.has(midi) ? 'is-hit-correct' : 'is-hit-wrong';
     }
     return allowedImprovisationSet.has(midiToPitchClass(midi)) ? 'is-hit-correct' : 'is-hit-wrong';
+  }
+
+  function keyGuideStyle(midi: number): CSSProperties | undefined {
+    if (mode !== 'improvisation') {
+      return undefined;
+    }
+
+    const pitchClass = midiToPitchClass(midi);
+    const style: CSSProperties = {};
+
+    if (nextGuideMidiSet.has(midi) && nextScaleSet.has(pitchClass)) {
+      (style as Record<string, string>)['--next-scale-color'] = withAlpha(
+        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
+        0.76,
+      );
+    }
+
+    if (currentGuideMidiSet.has(midi) && currentScaleSet.has(pitchClass)) {
+      (style as Record<string, string>)['--current-scale-color'] = withAlpha(
+        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
+        0.92,
+      );
+    }
+
+    return Object.keys(style).length > 0 ? style : undefined;
   }
 
   useEffect(() => {
@@ -313,15 +402,29 @@ export function PianoView({
               {whiteKeys.map((key) => {
                 const active = activeNotes.has(key.midi);
                 const markerKind = markerKindForMidi(key.midi);
+                const guideStyle = keyGuideStyle(key.midi);
+                const keyClasses = [
+                  'piano-key',
+                  'white',
+                  guideStyle && 'is-scale-guided',
+                  guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-current',
+                  guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-next',
+                  toneClass(active, key.midi),
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                const style: CSSProperties = { width: `${WHITE_KEY_WIDTH}px`, ...guideStyle };
 
                 return (
                   <div
                     key={key.midi}
-                    className={`piano-key white ${toneClass(active, key.midi)}`.trim()}
+                    className={keyClasses}
                     role="img"
                     aria-label={`Piano key ${key.noteName}`}
-                    style={{ width: `${WHITE_KEY_WIDTH}px` }}
+                    style={style}
                   >
+                    {guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band next" /> : null}
+                    {guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band current" /> : null}
                     {markerKind ? (
                       <span
                         className={`key-marker ${markerKind}`.trim()}
@@ -338,18 +441,33 @@ export function PianoView({
               {blackKeys.map((key) => {
                 const active = activeNotes.has(key.midi);
                 const markerKind = markerKindForMidi(key.midi);
+                const guideStyle = keyGuideStyle(key.midi);
+                const keyClasses = [
+                  'piano-key',
+                  'black',
+                  guideStyle && 'is-scale-guided',
+                  guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-current',
+                  guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-next',
+                  toneClass(active, key.midi),
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                const style: CSSProperties = {
+                  left: `${key.left}px`,
+                  width: `${BLACK_KEY_WIDTH}px`,
+                  ...guideStyle,
+                };
 
                 return (
                   <div
                     key={key.midi}
-                    className={`piano-key black ${toneClass(active, key.midi)}`.trim()}
+                    className={keyClasses}
                     role="img"
                     aria-label={`Piano key ${key.noteName}`}
-                    style={{
-                      left: `${key.left}px`,
-                      width: `${BLACK_KEY_WIDTH}px`,
-                    }}
+                    style={style}
                   >
+                    {guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band next" /> : null}
+                    {guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band current" /> : null}
                     {markerKind ? (
                       <span
                         className={`key-marker ${markerKind}`.trim()}

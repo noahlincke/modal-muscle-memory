@@ -17,7 +17,6 @@ describe('progressStore', () => {
     progress.exerciseConfig.improvisationAdvanceMode = 'footpedal_release';
     progress.exerciseConfig.chainMovement = 72;
     progress.settings.enableComputerKeyboardAudio = false;
-    progress.settings.keyboardFriendlyVoicings = false;
     progress.settings.practiceTrackingMode = 'play';
     progress.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'] = {
       attempts: 4,
@@ -41,7 +40,6 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.settings.enableComputerKeyboardAudio).toBe(false);
-    expect(loaded.settings.keyboardFriendlyVoicings).toBe(false);
     expect(loaded.settings.practiceTrackingMode).toBe('play');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1']).toBeDefined();
   });
@@ -96,7 +94,6 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.settings.enableComputerKeyboardAudio).toBe(true);
-    expect(loaded.settings.keyboardFriendlyVoicings).toBe(true);
     expect(loaded.settings.practiceTrackingMode).toBe('test');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'].attempts).toBe(8);
   });
@@ -148,6 +145,7 @@ describe('progressStore', () => {
       'predominant',
     ]);
     expect(loaded.exerciseConfig.keySet).toBe('max_2_accidentals');
+    expect(loaded.exerciseConfig.includedKeyRoots).toEqual(['C', 'G', 'F', 'D', 'Bb']);
   });
 
   it('preserves intentionally empty filter groups on reload', () => {
@@ -172,6 +170,27 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.enabledContentBlockIds).toEqual([]);
     expect(loaded.exerciseConfig.enabledScaleFamilyIds).toEqual([]);
     expect(loaded.exerciseConfig.enabledProgressionFamilyTags).toEqual([]);
+  });
+
+  it('preserves a custom included key set on reload', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        exerciseConfig: {
+          mode: 'guided',
+          curriculumPresetId: 'major_foundations',
+          lane: 'ionian',
+          keySet: 'custom',
+          includedKeyRoots: ['Bb', 'C', 'Bb', 'not_a_key'],
+          rhythm: ['all'],
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.exerciseConfig.keySet).toBe('custom');
+    expect(loaded.exerciseConfig.includedKeyRoots).toEqual(['C', 'Bb']);
   });
 
   it('normalizes fully selected rhythm specifics back to all', () => {

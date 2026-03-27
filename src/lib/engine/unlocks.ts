@@ -1,18 +1,8 @@
 import type { ModeLane, VoicingFamily } from '../../types/music';
 import type { ProgressState, UnlockDecision, UnlockState } from '../../types/progress';
 import { median } from '../theory/noteUtils';
-import { VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const ROOT_UNLOCK_ORDER = ['C', 'G', 'F', 'D', 'Bb', 'A', 'Eb', 'E', 'Ab', 'B', 'Db', 'Gb'];
-const VOICING_UNLOCK_ORDER: VoicingFamily[] = VOICING_FAMILIES_IN_ORDER.filter((voicing) => [
-  'guide_tone_37',
-  'guide_tone_73',
-  'shell_137',
-  'rootless_379',
-  'rootless_7313',
-  'closed_7th',
-  'inversion_1',
-].includes(voicing));
 
 const VOICING_LATENCY_TARGET_MS: Record<VoicingFamily, number> = {
   guide_tone_37: 700,
@@ -69,15 +59,6 @@ function nextRootToUnlock(unlock: UnlockState): string | null {
   return null;
 }
 
-function nextVoicingToUnlock(unlock: UnlockState): VoicingFamily | null {
-  for (const voicing of VOICING_UNLOCK_ORDER) {
-    if (!unlock.voicings.includes(voicing)) {
-      return voicing;
-    }
-  }
-  return null;
-}
-
 export function shouldUnlock(progress: ProgressState, lane: ModeLane): boolean {
   const attempts = laneAttempts(progress, lane);
   if (attempts.length < 20) {
@@ -128,28 +109,6 @@ export function applyUnlockDecision(
         axis: 'root',
         value: nextRoot,
         reason: 'Deck fluent: unlocked next tonal center.',
-      },
-    };
-  }
-
-  const nextVoicing = nextVoicingToUnlock(laneUnlock);
-  if (nextVoicing) {
-    return {
-      progress: {
-        ...progress,
-        unlocksByLane: {
-          ...progress.unlocksByLane,
-          [lane]: {
-            ...laneUnlock,
-            voicings: [...laneUnlock.voicings, nextVoicing],
-          },
-        },
-      },
-      decision: {
-        unlocked: true,
-        axis: 'voicing',
-        value: nextVoicing,
-        reason: 'Deck fluent: unlocked next voicing family.',
       },
     };
   }

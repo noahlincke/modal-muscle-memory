@@ -305,10 +305,7 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
       <header className="progress-header">
         <div className="progress-header-copy">
           <span className="eyebrow">Progress</span>
-          <h1>Track real practice, not noisy numbers.</h1>
-          <p>
-            The page now centers time on keys, consistency, mastery badges, and the exact progressions still worth drilling.
-          </p>
+          <h1>Practice Profile</h1>
         </div>
         <div className="progress-header-actions">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
@@ -356,29 +353,24 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
         </div>
       </section>
 
-      <section className="progress-mastery-panel">
-        <div className="progress-mastery-copy">
-          <span className="eyebrow">How Mastery Works</span>
-          <h2>Mastering a progression means clean repetition, not one lucky pass.</h2>
+      <section className="progress-explainer-grid">
+        <article className="progress-explainer-card">
+          <span className="eyebrow">Mastery</span>
+          <h2>{MASTERY_MIN_ATTEMPTS} clean reps, not one lucky pass</h2>
           <p>
-            A progression counts as mastered once its {MASTERY_MIN_ATTEMPTS} most recent completed phrases average at least {pct(MASTERY_TARGET_ACCURACY)} accuracy.
-            If that rolling average slips, the mastered badge slips too.
+            A progression is mastered when its last {MASTERY_MIN_ATTEMPTS} completed phrases average at least {pct(MASTERY_TARGET_ACCURACY)}.
+            If that rolling average drops, mastery drops too.
           </p>
-        </div>
-        <div className="progress-mastery-steps">
-          <div>
-            <strong>{MASTERY_MIN_ATTEMPTS} recent reps</strong>
-            <span>Complete the same progression enough times to establish consistency.</span>
-          </div>
-          <div>
-            <strong>{pct(MASTERY_TARGET_ACCURACY)} average accuracy</strong>
-            <span>Hit the right voicings and transitions reliably, not occasionally.</span>
-          </div>
-          <div>
-            <strong>2x per week keeps the streak</strong>
-            <span>Practice at least two blocks each week to extend the consistency streak.</span>
-          </div>
-        </div>
+        </article>
+
+        <article className="progress-explainer-card">
+          <span className="eyebrow">Streak</span>
+          <h2>Keep two practice blocks alive each week</h2>
+          <p>
+            Log {SESSIONS_PER_WEEK_TARGET} practice blocks per week to extend the consistency streak.
+            You are at {thisWeekCount} of {SESSIONS_PER_WEEK_TARGET} this week.
+          </p>
+        </article>
       </section>
 
       <section className="progress-section">
@@ -422,7 +414,7 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
                         <strong>{progressionSubtitle(progression.progression.id)}</strong>
                         <span>{progression.mastered ? 'Mastered' : progression.attempts > 0 ? 'In Progress' : 'Fresh'}</span>
                       </div>
-                      <span>{progressionRomanSummary(progression.progression)}</span>
+                      <span className="progress-subbadge-roman">{progressionRomanSummary(progression.progression)}</span>
                       <span>
                         {progression.attempts > 0
                           ? `${progression.attempts} reps · ${pct(progression.recentAccuracy)} recent accuracy`

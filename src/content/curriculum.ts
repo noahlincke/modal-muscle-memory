@@ -6,6 +6,7 @@ import type {
   ProgressionFamilyTag,
   ScaleFamilyId,
 } from '../types/music';
+import { rootsForKeySet } from './keys';
 import type { ExerciseConfig } from '../types/progress';
 
 export interface ContentBlock {
@@ -143,6 +144,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
     progressionIds: [
       'secondary_dominant_chain',
       'lydian_dominant_resolve',
+      'tritone_sub_cadence',
       'altered_backcycle',
       'phrygian_dominant_minor_gate',
     ],
@@ -266,7 +268,7 @@ const CONTENT_BLOCKS_BY_ID = new Map<ContentBlockId, ContentBlock>(
   CONTENT_BLOCKS.map((block) => [block.id, block]),
 );
 
-const KEY_SET_IDS = new Set<KeySetId>(KEY_SET_OPTIONS.map((option) => option.id));
+const KEY_SET_IDS = new Set<KeySetId>([...KEY_SET_OPTIONS.map((option) => option.id), 'custom']);
 const SCALE_FAMILY_IDS = new Set<ScaleFamilyId>(SCALE_FAMILY_OPTIONS.map((family) => family.id));
 const PROGRESSION_FAMILY_IDS = new Set<ProgressionFamilyTag>(PROGRESSION_FAMILY_OPTIONS.map((family) => family.id));
 
@@ -276,6 +278,20 @@ export function getCurriculumPreset(id: CurriculumPresetId): CurriculumPreset | 
 
 export function getContentBlock(id: ContentBlockId): ContentBlock | null {
   return CONTENT_BLOCKS_BY_ID.get(id) ?? null;
+}
+
+export function deriveFamiliesForContentBlocks(blockIds: ContentBlockId[]): {
+  enabledScaleFamilyIds: ScaleFamilyId[];
+  enabledProgressionFamilyTags: ProgressionFamilyTag[];
+} {
+  const blocks = [...new Set(blockIds)]
+    .map((blockId) => getContentBlock(blockId))
+    .filter((block): block is ContentBlock => block !== null);
+
+  return {
+    enabledScaleFamilyIds: [...new Set(blocks.flatMap((block) => block.scaleFamilyIds))],
+    enabledProgressionFamilyTags: [...new Set(blocks.flatMap((block) => block.progressionFamilyTags))],
+  };
 }
 
 export function curriculumPresetIdForLane(lane: ModeLane): CurriculumPresetId {
@@ -367,5 +383,6 @@ export function applyCurriculumPreset(
     enabledScaleFamilyIds: [...preset.enabledScaleFamilyIds],
     enabledProgressionFamilyTags: [...preset.enabledProgressionFamilyTags],
     keySet: preset.keySet,
+    includedKeyRoots: rootsForKeySet(preset.keySet),
   };
 }

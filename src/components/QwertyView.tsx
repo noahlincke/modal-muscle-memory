@@ -1,14 +1,15 @@
-import { useMemo } from 'react';
+import { type CSSProperties, useMemo } from 'react';
 import { Midi } from 'tonal';
+import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import type { ExerciseMode } from '../types/music';
 import {
   noteNumberForBinding,
-  qwertyAnchorLabel,
   QWERTY_NOTE_BINDINGS,
 } from '../lib/input/qwertyInput';
 import { midiToPitchClass } from '../lib/theory/noteUtils';
 
 interface QwertyViewProps {
+  tonic: string | null;
   mode: ExerciseMode;
   clef: 'treble' | 'bass';
   octaveShift: number;
@@ -29,6 +30,7 @@ interface RenderKey {
   centerX: number;
   isBlack: boolean;
   left: number;
+  right: number;
 }
 
 interface GuideMarker {
@@ -38,6 +40,19 @@ interface GuideMarker {
 
 const WHITE_KEY_WIDTH = 42;
 const BLACK_KEY_WIDTH = 28;
+
+function withAlpha(hexColor: string, alpha: number): string {
+  const match = hexColor.match(/^#([0-9a-f]{6})$/i);
+  if (!match) {
+    return hexColor;
+  }
+
+  const value = match[1];
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
 
 function splitGuideLabel(label: string): {
   prefixAccidental: string;
@@ -145,6 +160,7 @@ function buildGuideMarkers(
 }
 
 export function QwertyView({
+  tonic,
   mode,
   clef,
   octaveShift,
@@ -157,39 +173,85 @@ export function QwertyView({
   activeNotes,
   highlightColor,
 }: QwertyViewProps) {
-  const keys = useMemo(() => {
-    return QWERTY_NOTE_BINDINGS.reduce<RenderKey[]>((result, binding) => {
-      const whiteIndex = result.filter((key) => !key.isBlack).length;
-      const midi = noteNumberForBinding(binding, octaveShift);
-      if (binding.isBlack) {
-        const left = (whiteIndex * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2);
-        result.push({
+  const whiteKeysBase = useMemo(
+    () => QWERTY_NOTE_BINDINGS
+      .filter((binding) => !binding.isBlack)
+      .map<RenderKey>((binding, whiteIndex) => {
+        const midi = noteNumberForBinding(binding, octaveShift);
+        const left = whiteIndex * WHITE_KEY_WIDTH;
+        const right = left + WHITE_KEY_WIDTH;
+        return {
           midi,
           qwertyLabel: binding.label,
           noteName: Midi.midiToNoteName(midi, { sharps: true }) ?? `M${midi}`,
-          centerX: left + (BLACK_KEY_WIDTH / 2),
-          isBlack: true,
+          centerX: left + (WHITE_KEY_WIDTH / 2),
+          isBlack: false,
           left,
-        });
-        return result;
+          right,
+        };
+      }),
+    [octaveShift],
+  );
+
+  const blackKeys = useMemo(
+    () => QWERTY_NOTE_BINDINGS.flatMap<RenderKey>((binding, bindingIndex) => {
+      if (!binding.isBlack) {
+        return [];
       }
 
-      const centerX = (whiteIndex * WHITE_KEY_WIDTH) + (WHITE_KEY_WIDTH / 2);
-      result.push({
+      const whiteIndex = QWERTY_NOTE_BINDINGS
+        .slice(0, bindingIndex)
+        .filter((candidate) => !candidate.isBlack)
+        .length;
+      const midi = noteNumberForBinding(binding, octaveShift);
+      const left = (whiteIndex * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2);
+      const right = left + BLACK_KEY_WIDTH;
+      return [{
         midi,
         qwertyLabel: binding.label,
         noteName: Midi.midiToNoteName(midi, { sharps: true }) ?? `M${midi}`,
-        centerX,
-        isBlack: false,
-        left: centerX - (WHITE_KEY_WIDTH / 2),
-      });
-      return result;
-    }, []);
-  }, [octaveShift]);
+        centerX: left + (BLACK_KEY_WIDTH / 2),
+        isBlack: true,
+        left,
+        right,
+      }];
+    }),
+    [octaveShift],
+  );
 
-  const whiteKeys = keys.filter((key) => !key.isBlack);
-  const blackKeys = keys.filter((key) => key.isBlack);
+  const whiteKeys = useMemo(() => whiteKeysBase.map((key) => {
+    const midpoint = key.left + (WHITE_KEY_WIDTH / 2);
+    let visibleLeft = key.left;
+    let visibleRight = key.right;
+
+    blackKeys.forEach((blackKey) => {
+      const overlapsWhiteKey = blackKey.left < key.right && blackKey.right > key.left;
+      if (!overlapsWhiteKey) {
+        return;
+      }
+
+      if (blackKey.centerX < midpoint) {
+        visibleLeft = Math.max(visibleLeft, blackKey.right);
+      } else {
+        visibleRight = Math.min(visibleRight, blackKey.left);
+      }
+    });
+
+    const centerX = visibleRight > visibleLeft
+      ? (visibleLeft + visibleRight) / 2
+      : key.centerX;
+
+    return {
+      ...key,
+      centerX,
+    };
+  }), [blackKeys, whiteKeysBase]);
+
+  const keys = useMemo(() => [...whiteKeys, ...blackKeys].sort((a, b) => a.midi - b.midi), [whiteKeys, blackKeys]);
   const targetSet = new Set(targetNotes);
+  const chordToneSet = useMemo(() => new Set(chordTonePitchClasses), [chordTonePitchClasses]);
+  const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
+  const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
   const allowedImprovisationSet = new Set([
     ...chordTonePitchClasses,
     ...currentScalePitchClasses,
@@ -203,6 +265,18 @@ export function QwertyView({
   const currentGuideMarkers = useMemo(
     () => buildGuideMarkers(currentScaleGuideLabels, clef, keys, targetNotes),
     [clef, currentScaleGuideLabels, keys, targetNotes],
+  );
+  const currentGuideMidiSet = useMemo(
+    () => new Set(currentGuideMarkers.map((marker) => marker.midi)),
+    [currentGuideMarkers],
+  );
+  const nextGuideMidiSet = useMemo(
+    () => new Set(nextGuideMarkers.map((marker) => marker.midi)),
+    [nextGuideMarkers],
+  );
+  const labeledGuideMidiSet = useMemo(
+    () => new Set([...currentGuideMidiSet, ...nextGuideMidiSet]),
+    [currentGuideMidiSet, nextGuideMidiSet],
   );
 
   const stageWidth = `${whiteKeys.length * WHITE_KEY_WIDTH}px`;
@@ -219,14 +293,33 @@ export function QwertyView({
     return allowedImprovisationSet.has(midiToPitchClass(midi)) ? 'is-hit-correct' : 'is-hit-wrong';
   }
 
+  function keyGuideStyle(midi: number): CSSProperties | undefined {
+    if (mode !== 'improvisation') {
+      return undefined;
+    }
+
+    const pitchClass = midiToPitchClass(midi);
+    const style: CSSProperties = {};
+
+    if (nextGuideMidiSet.has(midi) && nextScaleSet.has(pitchClass)) {
+      (style as Record<string, string>)['--next-scale-color'] = withAlpha(
+        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
+        0.76,
+      );
+    }
+
+    if (currentGuideMidiSet.has(midi) && currentScaleSet.has(pitchClass)) {
+      (style as Record<string, string>)['--current-scale-color'] = withAlpha(
+        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
+        0.92,
+      );
+    }
+
+    return Object.keys(style).length > 0 ? style : undefined;
+  }
+
   return (
     <div className="qwerty-view">
-      <div className="qwerty-heading">
-        <strong>QWERTY</strong>
-        <span>{qwertyAnchorLabel(octaveShift)}</span>
-        <span>Z/X shift octave</span>
-      </div>
-
       {mode === 'improvisation' ? (
         <div className="scale-guide qwerty-scale-guide" aria-hidden="true" style={{ width: stageWidth }}>
           <div className="scale-guide-row next">
@@ -272,16 +365,33 @@ export function QwertyView({
         <div className="piano-white-row">
           {whiteKeys.map((key) => {
             const active = activeNotes.has(key.midi);
-            const hasTarget = targetSet.has(key.midi);
+            const pitchClass = midiToPitchClass(key.midi);
+            const hasTarget = mode === 'guided'
+              ? targetSet.has(key.midi)
+              : labeledGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
+            const guideStyle = keyGuideStyle(key.midi);
+            const keyClasses = [
+              'piano-key',
+              'white',
+              'qwerty-key',
+              guideStyle && 'is-scale-guided',
+              guideStyle && currentGuideMidiSet.has(key.midi) && 'is-scale-current',
+              guideStyle && nextGuideMidiSet.has(key.midi) && 'is-scale-next',
+              toneClass(active, key.midi),
+            ]
+              .filter(Boolean)
+              .join(' ');
 
             return (
               <div
                 key={key.midi}
-                className={`piano-key white qwerty-key ${toneClass(active, key.midi)}`.trim()}
+                className={keyClasses}
                 role="img"
                 aria-label={`QWERTY key ${key.qwertyLabel} for ${key.noteName}`}
-                style={{ width: `${WHITE_KEY_WIDTH}px` }}
+                style={{ width: `${WHITE_KEY_WIDTH}px`, ...guideStyle }}
               >
+                {guideStyle && nextGuideMidiSet.has(key.midi) ? <span className="key-scale-band next" /> : null}
+                {guideStyle && currentGuideMidiSet.has(key.midi) ? <span className="key-scale-band current" /> : null}
                 {hasTarget ? (
                   <span
                     className="key-marker chord"
@@ -298,19 +408,37 @@ export function QwertyView({
         <div className="piano-black-row">
           {blackKeys.map((key) => {
             const active = activeNotes.has(key.midi);
-            const hasTarget = targetSet.has(key.midi);
+            const pitchClass = midiToPitchClass(key.midi);
+            const hasTarget = mode === 'guided'
+              ? targetSet.has(key.midi)
+              : labeledGuideMidiSet.has(key.midi) && chordToneSet.has(pitchClass);
+            const guideStyle = keyGuideStyle(key.midi);
+            const keyClasses = [
+              'piano-key',
+              'black',
+              'qwerty-key',
+              guideStyle && 'is-scale-guided',
+              guideStyle && currentGuideMidiSet.has(key.midi) && 'is-scale-current',
+              guideStyle && nextGuideMidiSet.has(key.midi) && 'is-scale-next',
+              toneClass(active, key.midi),
+            ]
+              .filter(Boolean)
+              .join(' ');
 
             return (
               <div
                 key={key.midi}
-                className={`piano-key black qwerty-key ${toneClass(active, key.midi)}`.trim()}
+                className={keyClasses}
                 role="img"
                 aria-label={`QWERTY key ${key.qwertyLabel} for ${key.noteName}`}
                 style={{
                   left: `${key.left}px`,
                   width: `${BLACK_KEY_WIDTH}px`,
+                  ...guideStyle,
                 }}
               >
+                {guideStyle && nextGuideMidiSet.has(key.midi) ? <span className="key-scale-band next" /> : null}
+                {guideStyle && currentGuideMidiSet.has(key.midi) ? <span className="key-scale-band current" /> : null}
                 {hasTarget ? (
                   <span
                     className="key-marker chord"
@@ -322,6 +450,11 @@ export function QwertyView({
               </div>
             );
           })}
+        </div>
+
+        <div className="qwerty-corner-hint" aria-hidden="true">
+          <span>Z down</span>
+          <span>X up</span>
         </div>
       </div>
     </div>

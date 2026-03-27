@@ -50,10 +50,30 @@ export function rootsForKeySet(keySet: KeySetId): string[] {
       return ALL_KEY_ROOTS.filter((root) => (KEY_COMPLEXITY[root] ?? 6) <= 4);
     case 'max_5_accidentals':
       return ALL_KEY_ROOTS.filter((root) => (KEY_COMPLEXITY[root] ?? 6) <= 5);
+    case 'custom':
+      return [];
     case 'all_keys':
     default:
       return [...ALL_KEY_ROOTS];
   }
+}
+
+export function normalizeIncludedKeyRoots(roots: string[] | undefined, fallback: string[] = []): string[] {
+  if (!Array.isArray(roots)) {
+    return [...fallback];
+  }
+
+  const validRoots = new Set(ALL_KEY_ROOTS);
+  const normalized = ALL_KEY_ROOTS.filter((root) => roots.includes(root) && validRoots.has(root));
+  return normalized.length > 0 || roots.length === 0 ? normalized : [...fallback];
+}
+
+export function resolveIncludedKeyRoots(keySet: KeySetId, includedKeyRoots: string[] | undefined): string[] {
+  if (keySet === 'custom') {
+    return normalizeIncludedKeyRoots(includedKeyRoots, []);
+  }
+
+  return rootsForKeySet(keySet);
 }
 
 export function keySignatureForRoot(root: string): { symbol: 'flat' | 'sharp'; count: number } | null {

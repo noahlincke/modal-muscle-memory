@@ -302,6 +302,33 @@ const expandedProgressions: ProgressionDefinition[] = [
     chainTargets: ['whole_tone_drift', 'half_whole_dominant_cycle'],
   },
   {
+    id: 'tritone_sub_cadence',
+    lane: 'mixolydian',
+    difficulty: 3,
+    steps: [
+      { roman: 'ii7', functionTag: 'predominant', recommendedScaleIds: ['dorian'], colorScaleIds: ['major_pentatonic'] },
+      { roman: 'bII7', functionTag: 'dominant', recommendedScaleIds: ['lydian_dominant'], colorScaleIds: ['altered'] },
+      { roman: 'Imaj7', functionTag: 'tonic', recommendedScaleIds: ['ionian'], colorScaleIds: ['lydian'] },
+      { roman: 'VI7', functionTag: 'dominant', recommendedScaleIds: ['mixolydian'], colorScaleIds: ['lydian_dominant'] },
+    ],
+    allowedVoicings: ['closed_7th', 'inversion_1', 'shell_137'],
+    rhythmPlan: ['quarters', 'charleston', 'block_whole', 'quarters'],
+    maxVoiceMotionSemitones: 9,
+    tonicCenterStable: false,
+    tags: {
+      styles: ['functional_jazz'],
+      modeFamilies: ['mixolydian', 'ionian', 'lydian'],
+      families: ['cadence', 'dominant_cycle'],
+    },
+    difficultyProfile: {
+      level: 3,
+      accidentalComplexity: 4,
+      borrowedChordCount: 1,
+      alterationComplexity: 2,
+    },
+    chainTargets: ['secondary_dominant_chain', 'altered_backcycle'],
+  },
+  {
     id: 'phrygian_dominant_minor_gate',
     lane: 'mixolydian',
     difficulty: 4,

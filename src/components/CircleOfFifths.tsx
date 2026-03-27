@@ -11,6 +11,9 @@ interface CircleOfFifthsProps {
   currentChordRoot: string | null;
   currentChordPitchClasses: string[];
   visualizationMode: 'intervals' | 'chord_arrows';
+  includedRoots?: string[];
+  selectedTonic?: string | null;
+  onSelectRoot?: (root: string) => void;
 }
 
 export function CircleOfFifths({
@@ -18,6 +21,9 @@ export function CircleOfFifths({
   currentChordRoot,
   currentChordPitchClasses,
   visualizationMode,
+  includedRoots,
+  selectedTonic,
+  onSelectRoot,
 }: CircleOfFifthsProps) {
   const center = 120;
   const outerRadius = 98;
@@ -30,6 +36,8 @@ export function CircleOfFifths({
   const currentRootBorderColor = intervalColorForTonicAndRoot(currentTonic, currentChordRoot, '#f97316');
   const chordPitchClasses = [...new Set(currentChordPitchClasses.map((pitchClass) => normalizePitchClass(pitchClass)))];
   const tonicPitchClass = currentTonic ? normalizePitchClass(currentTonic) : null;
+  const selectedTonicPitchClass = selectedTonic ? normalizePitchClass(selectedTonic) : null;
+  const includedRootSet = includedRoots ? new Set(includedRoots.map((root) => normalizePitchClass(root))) : null;
 
   const nodePositions = displayedRoots.reduce<Record<string, { x: number; y: number }>>((result, root, index) => {
     const angle = (-Math.PI / 2) + (index / displayedRoots.length) * Math.PI * 2;
@@ -92,24 +100,55 @@ export function CircleOfFifths({
           const y = center + Math.sin(angle) * outerRadius;
           const normalized = normalizePitchClass(root);
           const isCurrentRoot = chordRoot === normalized;
+          const isSelectedTonic = selectedTonicPitchClass === normalized;
+          const isIncluded = includedRootSet ? includedRootSet.has(normalized) : true;
 
           const className = [
             'circle-node',
             isCurrentRoot ? 'is-current-root' : '',
+            isSelectedTonic ? 'is-selected-tonic' : '',
+            isIncluded ? 'is-included-root' : 'is-excluded-root',
+            onSelectRoot ? 'is-clickable' : '',
           ]
             .filter(Boolean)
             .join(' ');
+          const groupClassName = ['circle-node-group', onSelectRoot ? 'is-clickable' : ''].filter(Boolean).join(' ');
+          const ariaLabel = onSelectRoot
+            ? `${isIncluded ? 'Select' : 'Add and select'} key ${root}`
+            : undefined;
 
           return (
-            <g key={root}>
+            <g
+              key={root}
+              className={groupClassName}
+              role={onSelectRoot ? 'button' : undefined}
+              tabIndex={onSelectRoot ? 0 : undefined}
+              aria-label={ariaLabel}
+              onClick={onSelectRoot ? () => onSelectRoot(root) : undefined}
+              onKeyDown={onSelectRoot
+                ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onSelectRoot(root);
+                    }
+                  }
+                : undefined}
+            >
               <circle
                 cx={x}
                 cy={y}
                 r="12"
                 className={className}
-                style={isCurrentRoot ? { stroke: currentRootBorderColor } : undefined}
+                style={isCurrentRoot
+                  ? { stroke: currentRootBorderColor }
+                  : undefined}
               />
-              <text x={x} y={y + 4} textAnchor="middle" className="circle-label">
+              <text
+                x={x}
+                y={y + 4}
+                textAnchor="middle"
+                className={`circle-label ${isIncluded ? '' : 'is-muted'}`.trim()}
+              >
                 {root}
               </text>
             </g>

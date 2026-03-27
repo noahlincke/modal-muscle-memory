@@ -32,7 +32,7 @@ export type VoicingPracticeMode = 'auto' | 'custom';
 export type GuidedFlowMode = 'random' | 'targeting_improvement' | 'musical_chaining';
 export type ImprovisationProgressionMode = 'random' | 'targeting_improvement' | 'chained';
 export type ImprovisationAdvanceMode = 'immediate' | 'footpedal_release';
-export type CircleVisualizationMode = 'intervals' | 'chord_arrows';
+export type CircleVisualizationMode = 'intervals' | 'chord_arrows' | 'hidden';
 
 export type VoicingFamily =
   | 'triad_root'
@@ -78,7 +78,8 @@ export type KeySetId =
   | 'max_3_accidentals'
   | 'max_4_accidentals'
   | 'max_5_accidentals'
-  | 'all_keys';
+  | 'all_keys'
+  | 'custom';
 
 export type ScaleFamilyId =
   | 'diatonic_modes'

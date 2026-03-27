@@ -26,6 +26,7 @@ export interface ExerciseConfig {
   enabledScaleFamilyIds: ScaleFamilyId[];
   enabledProgressionFamilyTags: ProgressionFamilyTag[];
   keySet: KeySetId;
+  includedKeyRoots: string[];
   rhythm: RhythmSelection;
   voicingPracticeMode: VoicingPracticeMode;
   selectedVoicings: VoicingFamily[];
@@ -73,7 +74,7 @@ export interface UserSettings {
   metronomeEnabled: boolean;
   showKeyboardPanel: boolean;
   practiceTrackingMode: 'test' | 'play';
-  scaleGuideLabelMode: 'degrees' | 'note_names';
+  scaleGuideLabelMode: 'degrees' | 'note_names' | 'hidden';
   staffClef: 'treble' | 'bass';
   registerMin: number;
   registerMax: number;
@@ -81,7 +82,6 @@ export interface UserSettings {
   midiInputId: string | null;
   enableReferencePlayback: boolean;
   enableComputerKeyboardAudio: boolean;
-  keyboardFriendlyVoicings: boolean;
   circleVisualizationMode: CircleVisualizationMode;
   immersiveMode: boolean;
 }
