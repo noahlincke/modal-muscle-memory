@@ -15,7 +15,7 @@ import { ProgressScreen } from './components/ProgressScreen';
 import type { WalkthroughStep } from './components/WalkthroughBubble';
 import { Metronome } from './lib/audio/metronome';
 import { PreviewPlayback } from './lib/audio/previewPlayback';
-import { evaluateAttempt } from './lib/engine/evaluator';
+import { evaluateAttempt, evaluateFlashcardAttempt } from './lib/engine/evaluator';
 import { evaluateImprovisationAttempt } from './lib/engine/improvisationEvaluator';
 import {
   activeVoicingFamiliesForPractice,
@@ -30,6 +30,7 @@ import { applyMasteryUpdate } from './lib/engine/mastery';
 import { applyUnlockDecision } from './lib/engine/unlocks';
 import { createMidiFallbackState, MidiAccessController, type MidiConnectionState } from './lib/midi/midiAccess';
 import { ChordCapture } from './lib/midi/chordCapture';
+import { carryoverNotesAfterAdvance, hasAcceptedNotesStillHeld } from './lib/midi/chordAdvance';
 import type { ParsedMidiMessage } from './lib/midi/midiParser';
 import {
   createSyntheticNoteMessage,
@@ -44,8 +45,10 @@ import {
 import { loadRemoteProgress, saveRemoteProgress } from './lib/auth/progressSync';
 import { getSupabaseClient, isSupabaseConfigured } from './lib/auth/supabaseClient';
 import { buildProgressionMasterySummaries, MASTERY_MIN_ATTEMPTS } from './lib/progressionMastery';
-import { loadProgressState, normalizeProgressState, pushAttempt, pushSession, saveProgressState } from './lib/storage/progressStore';
-import { median } from './lib/theory/noteUtils';
+import { createDefaultProgressState, loadProgressState, normalizeProgressState, pushAttempt, pushSession, saveProgressState } from './lib/storage/progressStore';
+import { median, midiToPitchClass } from './lib/theory/noteUtils';
+import { preferredCenterForClef, registerForClef } from './lib/theory/voicingPlacement';
+import { buildChordToken } from './lib/theory/chordToken';
 import { orderedVoicingFamilies } from './lib/voicingFamilies';
 import {
   degreeLabelsForScale,
@@ -237,13 +240,6 @@ function normalizeTempo(input: number): number {
   return Math.min(220, Math.max(40, rounded));
 }
 
-function registerForClef(clef: 'treble' | 'bass'): { min: number; max: number } {
-  if (clef === 'bass') {
-    return { min: 36, max: 60 };
-  }
-  return { min: 48, max: 72 };
-}
-
 function unique(items: string[]): string[] {
   return [...new Set(items)];
 }
@@ -289,20 +285,27 @@ const SPECIFIC_RHYTHM_IDS = [
   'late_pickup_4',
   'floating_2and',
 ] as const;
+const FLASHCARD_DEFAULT_VOICINGS: VoicingFamily[] = ['closed_7th', 'inversion_1', 'inversion_2'];
 
 function normalizeVoicingSelection(
   exerciseConfig: ProgressState['exerciseConfig'],
   resetToAvailable: boolean,
 ): ProgressState['exerciseConfig'] {
   const availableVoicings = availableVoicingFamiliesForConfig(exerciseConfig);
+  const flashcardDefaults = orderedVoicingFamilies(
+    FLASHCARD_DEFAULT_VOICINGS.filter((voicing) => availableVoicings.includes(voicing)),
+  );
+  const preferredSelection = exerciseConfig.mode === 'chord_flashcards' && flashcardDefaults.length > 0
+    ? flashcardDefaults
+    : availableVoicings;
   const nextSelected = orderedVoicingFamilies(
-    (resetToAvailable ? availableVoicings : exerciseConfig.selectedVoicings)
+    (resetToAvailable ? preferredSelection : exerciseConfig.selectedVoicings)
       .filter((voicing) => availableVoicings.includes(voicing)),
   );
 
   return {
     ...exerciseConfig,
-    selectedVoicings: nextSelected.length > 0 ? nextSelected : availableVoicings,
+    selectedVoicings: nextSelected.length > 0 ? nextSelected : preferredSelection,
   };
 }
 
@@ -428,6 +431,66 @@ function improvisationOverlayForEvent(
   };
 }
 
+function acceptedFlashcardTokensForEvent(
+  phrase: Phrase | null,
+  currentEventIndex: number,
+  config: ProgressState['exerciseConfig'],
+  settings: ProgressState['settings'],
+): Phrase['tokensById'][string][] {
+  if (!phrase) {
+    return [];
+  }
+
+  const event = phrase.events[currentEventIndex];
+  const step = event ? phrase.progression.steps[event.progressionStepIndex] : null;
+  if (!event || !step) {
+    return [];
+  }
+
+  const selectedVoicings = activeVoicingFamiliesForPractice({
+    ...createDefaultProgressState(),
+    exerciseConfig: config,
+    settings,
+  });
+  const allowedVoicings = orderedVoicingFamilies(
+    selectedVoicings.filter((voicing) => phrase.progression.allowedVoicings.includes(voicing)),
+  );
+  if (allowedVoicings.length === 0) {
+    return [];
+  }
+
+  const midiRange = {
+    min: settings.registerMin,
+    max: settings.registerMax,
+  };
+  const preferredCenterMidi = preferredCenterForClef(settings.staffClef, midiRange);
+
+  return allowedVoicings.map((voicingFamily) => buildChordToken({
+    tonic: phrase.tonic,
+    lane: phrase.lane,
+    roman: step.roman,
+    voicingFamily,
+    midiRange,
+    maxVoiceMotionSemitones: phrase.progression.maxVoiceMotionSemitones,
+    preferredCenterMidi,
+  }));
+}
+
+function flashcardAttemptStillPossible(
+  playedNotes: number[],
+  acceptableTokens: Phrase['tokensById'][string][],
+): boolean {
+  const playedPitchClasses = unique(playedNotes.map((note) => midiToPitchClass(note)));
+  if (playedPitchClasses.length === 0) {
+    return false;
+  }
+
+  return acceptableTokens.some((token) => {
+    const allowedPitchClasses = new Set([...token.requiredPitchClasses, ...token.optionalPitchClasses]);
+    return playedPitchClasses.every((pitchClass) => allowedPitchClasses.has(pitchClass));
+  });
+}
+
 export default function App() {
   const supabase = useMemo(() => getSupabaseClient(), []);
   const walkthroughDebug = useMemo(() => walkthroughDebugEnabled(), []);
@@ -454,11 +517,14 @@ export default function App() {
   const currentEventIndexRef = useRef(0);
   const [completedEventIds, setCompletedEventIds] = useState<Set<string>>(new Set());
   const [latestEvaluation, setLatestEvaluation] = useState<EvaluationResult | null>(null);
+  const [flashcardScaffoldingVisible, setFlashcardScaffoldingVisible] = useState(false);
 
   const [midiNotes, setMidiNotes] = useState<Set<number>>(new Set());
   const [keyboardTargetOverrideNotes, setKeyboardTargetOverrideNotes] = useState<number[] | null>(null);
   const [streak, setStreak] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
+  // TODO: Add a voicing lock alongside exercise/key locks so players can drill one
+  // progression + voicing shape across all 12 keys without the voicing rotating.
   const [selectionLocks, setSelectionLocks] = useState<SelectionLocks>({ exercise: false, key: false });
   const isRunningRef = useRef(false);
 
@@ -769,6 +835,7 @@ export default function App() {
     updateCurrentEventIndex(0);
     setCompletedEventIds(new Set());
     setLatestEvaluation(null);
+    setFlashcardScaffoldingVisible(false);
     setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
     metronomeRef.current.stop();
     setIsRunning(false);
@@ -784,6 +851,30 @@ export default function App() {
 
   const syncVisibleMidiNotes = useCallback(() => {
     setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+  }, []);
+
+  const reconcileCarryoverDisplay = useCallback(() => {
+    if (!suppressCarryoverDisplayRef.current) {
+      return;
+    }
+
+    const activeNotes = captureRef.current.activeNoteNumbers;
+    carryoverNotesRef.current = new Set(
+      Array.from(carryoverNotesRef.current).filter((note) => activeNotes.has(note)),
+    );
+
+    if (carryoverNotesRef.current.size === 0) {
+      suppressCarryoverDisplayRef.current = false;
+      setKeyboardTargetOverrideNotes(null);
+    }
+  }, []);
+
+  const currentRequiredPitchClasses = useCallback(() => {
+    const workingPhrase = phraseRef.current;
+    const targetEvent = workingPhrase?.events[currentEventIndexRef.current] ?? null;
+    return targetEvent
+      ? workingPhrase?.tokensById[targetEvent.chordTokenId]?.requiredPitchClasses ?? []
+      : [];
   }, []);
 
   const beatOffsetForEvent = useCallback((event: PhraseEvent) => (
@@ -849,6 +940,7 @@ export default function App() {
             && state.exerciseConfig.improvisationProgressionMode === 'chained')
           || (state.exerciseConfig.mode === 'guided'
             && state.exerciseConfig.guidedFlowMode === 'musical_chaining')
+          || state.exerciseConfig.mode === 'chord_flashcards'
         )
           ? phraseRef.current
           : null,
@@ -1041,9 +1133,9 @@ export default function App() {
         return false;
       }
 
+      const heldNotes = Array.from(captureRef.current.heldNoteNumbers);
       pendingAdvanceRef.current = null;
-      previousEventEndNotesRef.current = [];
-      captureRef.current.clearRecent();
+      previousEventEndNotesRef.current = carryoverNotesAfterAdvance(heldNotes, pending.acceptedNotes);
 
       let nextProgress = progressRef.current;
       if (pending.pendingResult) {
@@ -1095,13 +1187,13 @@ export default function App() {
       return true;
     }
 
-    if (captureRef.current.activeNoteNumbers.size > 0) {
+    const heldNotes = Array.from(captureRef.current.heldNoteNumbers);
+    if (hasAcceptedNotesStillHeld(heldNotes, pending.acceptedNotes)) {
       return false;
     }
 
     pendingAdvanceRef.current = null;
-    previousEventEndNotesRef.current = [];
-    captureRef.current.clearRecent();
+    previousEventEndNotesRef.current = carryoverNotesAfterAdvance(heldNotes, pending.acceptedNotes);
 
     let nextProgress = progressRef.current;
     if (pending.pendingResult) {
@@ -1175,6 +1267,7 @@ export default function App() {
     }
 
     const isImprovisationMode = progressRef.current.exerciseConfig.mode === 'improvisation';
+    const isFlashcardMode = progressRef.current.exerciseConfig.mode === 'chord_flashcards';
     if (isImprovisationMode && submissionReason !== 'required_detected') {
       return;
     }
@@ -1186,12 +1279,23 @@ export default function App() {
       phraseStartedAtIsoRef.current = nowIso();
       setIsRunning(true);
       isRunningRef.current = true;
-      if (progressRef.current.settings.metronomeEnabled) {
+      if (!isFlashcardMode && progressRef.current.settings.metronomeEnabled) {
         void metronomeRef.current.start(workingPhrase.tempo, { beatOffsetBeats: eventBeatOffset });
       }
     }
 
-    const expectedTimeMs = phraseStartAtMsRef.current + (eventBeatOffset * msPerBeat);
+    const expectedTimeMs = isFlashcardMode
+      ? submittedAtMs
+      : phraseStartAtMsRef.current + (eventBeatOffset * msPerBeat);
+
+    const acceptableFlashcardTokens = isFlashcardMode
+      ? acceptedFlashcardTokensForEvent(
+        workingPhrase,
+        eventIndex,
+        progressRef.current.exerciseConfig,
+        progressRef.current.settings,
+      )
+      : [];
 
     const result = isImprovisationMode
       ? evaluateImprovisationAttempt({
@@ -1202,6 +1306,15 @@ export default function App() {
         submittedAtMs,
         scoringMode: progressRef.current.settings.scoringMode,
       })
+      : isFlashcardMode
+        ? evaluateFlashcardAttempt({
+          acceptableTokens: acceptableFlashcardTokens,
+          playedNotes,
+          expectedTimeMs,
+          submittedAtMs,
+          scoringMode: progressRef.current.settings.scoringMode,
+          previousEventEndNotes: previousEventEndNotesRef.current,
+        })
       : evaluateAttempt({
         targetToken: token,
         playedNotes,
@@ -1211,7 +1324,20 @@ export default function App() {
         previousEventEndNotes: previousEventEndNotesRef.current,
       });
 
+    const deferFlashcardMiss = isFlashcardMode
+      && submissionReason === 'burst_closed'
+      && !result.success
+      && flashcardAttemptStillPossible(playedNotes, acceptableFlashcardTokens);
+
+    if (deferFlashcardMiss) {
+      pendingAdvanceRef.current = null;
+      return;
+    }
+
     setLatestEvaluation(result);
+    if (!result.success && isFlashcardMode) {
+      setFlashcardScaffoldingVisible(true);
+    }
 
     let nextProgress = progressRef.current;
 
@@ -1243,9 +1369,11 @@ export default function App() {
       phraseAttemptHistoryRef.current = [...phraseAttemptHistoryRef.current, attemptRecord];
     }
 
-    const hasBlockingPitchError = result.errors.some((error) =>
-      ['missing_required_tone', 'outside_allowed_scale', 'wrong_target_notes'].includes(error.code),
-    );
+    const hasBlockingPitchError = isFlashcardMode
+      ? !result.success
+      : result.errors.some((error) =>
+        ['missing_required_tone', 'outside_allowed_scale', 'wrong_target_notes'].includes(error.code),
+      );
 
     if (hasBlockingPitchError) {
       setStreak(0);
@@ -1258,7 +1386,7 @@ export default function App() {
       if (progressRef.current.exerciseConfig.improvisationAdvanceMode === 'footpedal_release') {
         pendingAdvanceRef.current = {
           nextIndex: isLastEvent ? null : eventIndex + 1,
-          acceptedNotes: [...token.midiVoicing],
+          acceptedNotes: [...playedNotes],
           submittedAtMs,
           requiresSustainRelease: true,
           eventId: event.id,
@@ -1356,21 +1484,11 @@ export default function App() {
       }
     }
 
-    const workingPhrase = phraseRef.current;
-    const eventIndex = currentEventIndexRef.current;
-    const targetEvent = workingPhrase ? workingPhrase.events[eventIndex] : null;
-    const requiredPitchClasses = targetEvent
-      ? workingPhrase?.tokensById[targetEvent.chordTokenId]?.requiredPitchClasses ?? []
-      : [];
-
-    const submission = captureRef.current.ingest(message, requiredPitchClasses);
-    if (suppressCarryoverDisplayRef.current && message.type === 'note_off') {
-      carryoverNotesRef.current.delete(message.noteNumber);
-      if (carryoverNotesRef.current.size === 0) {
-        suppressCarryoverDisplayRef.current = false;
-        setKeyboardTargetOverrideNotes(null);
-      }
-    }
+    const submission = captureRef.current.ingest(
+      message,
+      pendingAdvanceRef.current ? [] : currentRequiredPitchClasses(),
+    );
+    reconcileCarryoverDisplay();
     syncVisibleMidiNotes();
 
     if (screen !== 'practice') {
@@ -1383,14 +1501,18 @@ export default function App() {
 
     const nowMs = performance.now();
     const didAdvance = commitPendingAdvanceIfReady(nowMs, message);
-    if (didAdvance || pendingAdvanceRef.current) {
+    if (pendingAdvanceRef.current) {
       return;
     }
 
-    if (submission) {
-      submitAttempt(submission.notes, submission.timestamp, submission.reason);
+    const readySubmission = didAdvance
+      ? captureRef.current.flush(nowMs, currentRequiredPitchClasses())
+      : submission;
+
+    if (readySubmission) {
+      submitAttempt(readySubmission.notes, readySubmission.timestamp, readySubmission.reason);
     }
-  }, [computerKeyboardAudioEnabled, screen, commitPendingAdvanceIfReady, submitAttempt, syncVisibleMidiNotes]);
+  }, [computerKeyboardAudioEnabled, screen, commitPendingAdvanceIfReady, currentRequiredPitchClasses, reconcileCarryoverDisplay, submitAttempt, syncVisibleMidiNotes]);
 
   const releaseAllQwertyNotes = useCallback(() => {
     if (qwertyPressedNotesRef.current.size === 0) {
@@ -1500,18 +1622,10 @@ export default function App() {
 
     const timer = window.setInterval(() => {
       const nowMs = performance.now();
-      const workingPhrase = phraseRef.current;
-      const eventIndex = currentEventIndexRef.current;
-      const targetEvent = workingPhrase?.events[eventIndex] ?? null;
-      const requiredPitchClasses = targetEvent
-        ? workingPhrase?.tokensById[targetEvent.chordTokenId]?.requiredPitchClasses ?? []
-        : [];
-
-      const submission = captureRef.current.flush(nowMs, requiredPitchClasses);
-      if (suppressCarryoverDisplayRef.current && carryoverNotesRef.current.size === 0) {
-        suppressCarryoverDisplayRef.current = false;
-        setKeyboardTargetOverrideNotes(null);
-      }
+      const submission = pendingAdvanceRef.current
+        ? null
+        : captureRef.current.flush(nowMs, currentRequiredPitchClasses());
+      reconcileCarryoverDisplay();
       syncVisibleMidiNotes();
 
       if (suppressCarryoverDisplayRef.current) {
@@ -1519,19 +1633,23 @@ export default function App() {
       }
 
       const didAdvance = commitPendingAdvanceIfReady(nowMs);
-      if (didAdvance || pendingAdvanceRef.current) {
+      if (pendingAdvanceRef.current) {
         return;
       }
 
-      if (submission) {
-        submitAttempt(submission.notes, submission.timestamp, submission.reason);
+      const readySubmission = didAdvance
+        ? captureRef.current.flush(nowMs, currentRequiredPitchClasses())
+        : submission;
+
+      if (readySubmission) {
+        submitAttempt(readySubmission.notes, readySubmission.timestamp, readySubmission.reason);
       }
     }, 40);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [phrase, screen, commitPendingAdvanceIfReady, submitAttempt, syncVisibleMidiNotes]);
+  }, [phrase, screen, commitPendingAdvanceIfReady, currentRequiredPitchClasses, reconcileCarryoverDisplay, submitAttempt, syncVisibleMidiNotes]);
 
   useEffect(() => {
     if (!computerKeyboardAudioEnabled) {
@@ -1865,29 +1983,38 @@ export default function App() {
 
   const selectMode = useCallback((mode: ProgressState['exerciseConfig']['mode']) => {
     const previousPracticeTrackingMode = progressRef.current.settings.practiceTrackingMode;
-    const desiredPracticeTrackingMode = mode === 'guided' ? 'test' : 'play';
+    const desiredPracticeTrackingMode = mode === 'improvisation' ? 'play' : 'test';
     const desiredScaleGuideLabelMode = mode === 'improvisation'
       ? 'degrees'
       : progressRef.current.settings.scaleGuideLabelMode;
+    const nextExerciseConfig = normalizeVoicingSelection({
+      ...progressRef.current.exerciseConfig,
+      mode,
+      selectedVoicings: mode === 'chord_flashcards'
+        ? [...FLASHCARD_DEFAULT_VOICINGS]
+        : progressRef.current.exerciseConfig.selectedVoicings,
+      guidedFlowMode: mode === 'guided'
+        ? 'targeting_improvement'
+        : progressRef.current.exerciseConfig.guidedFlowMode,
+      improvisationProgressionMode: mode === 'improvisation'
+        ? 'chained'
+        : progressRef.current.exerciseConfig.improvisationProgressionMode,
+      flashcardFlowMode: mode === 'chord_flashcards'
+        ? 'mixed_recall'
+        : progressRef.current.exerciseConfig.flashcardFlowMode,
+    }, false);
     const next: ProgressState = {
       ...progressRef.current,
-      exerciseConfig: normalizeVoicingSelection({
-        ...progressRef.current.exerciseConfig,
-        mode,
-        guidedFlowMode: mode === 'guided'
-          ? 'targeting_improvement'
-          : progressRef.current.exerciseConfig.guidedFlowMode,
-        improvisationProgressionMode: mode === 'improvisation'
-          ? 'chained'
-          : progressRef.current.exerciseConfig.improvisationProgressionMode,
-      }, false),
+      exerciseConfig: nextExerciseConfig,
       settings: {
         ...progressRef.current.settings,
         practiceTrackingMode: desiredPracticeTrackingMode,
         scaleGuideLabelMode: desiredScaleGuideLabelMode,
-        metronomeEnabled: desiredPracticeTrackingMode === 'test'
-          ? true
-          : progressRef.current.settings.metronomeEnabled,
+        metronomeEnabled: mode === 'chord_flashcards'
+          ? false
+          : (desiredPracticeTrackingMode === 'test'
+            ? true
+            : progressRef.current.settings.metronomeEnabled),
       },
     };
 
@@ -1900,7 +2027,7 @@ export default function App() {
       setPracticeTrackingFlashToken((current) => current + 1);
     }
 
-    if (desiredPracticeTrackingMode === 'test' && isRunningRef.current) {
+    if (desiredPracticeTrackingMode === 'test' && mode !== 'chord_flashcards' && isRunningRef.current) {
       void metronomeRef.current.start(next.settings.tempo, {
         beatOffsetBeats: currentMetronomeBeatOffset(),
       });
@@ -1908,7 +2035,7 @@ export default function App() {
   }, [commitProgress, currentMetronomeBeatOffset, generateNextPhrase, unlockSelectionLocks]);
 
   const stepExerciseMode = useCallback((direction: 'forward' | 'backward') => {
-    const modes: ProgressState['exerciseConfig']['mode'][] = ['guided', 'improvisation'];
+    const modes: ProgressState['exerciseConfig']['mode'][] = ['guided', 'improvisation', 'chord_flashcards'];
     const currentIndex = modes.indexOf(progressRef.current.exerciseConfig.mode);
     const nextMode = modes[cycleIndex(modes.length, currentIndex, direction)];
     if (!nextMode) {
@@ -2018,6 +2145,15 @@ export default function App() {
     });
   }, [commitExerciseConfig]);
 
+  const selectFlashcardFlowMode = useCallback((
+    flashcardFlowMode: ProgressState['exerciseConfig']['flashcardFlowMode'],
+  ) => {
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      flashcardFlowMode,
+    });
+  }, [commitExerciseConfig]);
+
   const selectImprovisationAdvanceMode = useCallback((
     improvisationAdvanceMode: ProgressState['exerciseConfig']['improvisationAdvanceMode'],
   ) => {
@@ -2120,6 +2256,24 @@ export default function App() {
     () => improvisationOverlayForEvent(phrase, currentEventIndex),
     [phrase, currentEventIndex],
   );
+  const flashcardAcceptedPitchClasses = useMemo(() => {
+    if (progress.exerciseConfig.mode !== 'chord_flashcards') {
+      return [];
+    }
+
+    return unique(acceptedFlashcardTokensForEvent(
+      phrase,
+      currentEventIndex,
+      progress.exerciseConfig,
+      progress.settings,
+    ).flatMap((token) => [...token.requiredPitchClasses, ...token.optionalPitchClasses]));
+  }, [currentEventIndex, phrase, progress.exerciseConfig, progress.settings]);
+  const isFlashcardMode = progress.exerciseConfig.mode === 'chord_flashcards';
+  const showFlashcardScaffolding = !isFlashcardMode || flashcardScaffoldingVisible;
+  const notationVisible = showFlashcardScaffolding;
+  const effectiveKeyboardVisible = isFlashcardMode
+    ? showFlashcardScaffolding
+    : progress.settings.showKeyboardPanel;
 
   const keyboardRange = useMemo(() => {
     return {
@@ -2236,6 +2390,7 @@ export default function App() {
         qwertyOctaveShift={qwertyOctaveShift}
         tempo={progress.settings.tempo}
         keyboardTargetNotes={keyboardTargetNotes}
+        flashcardAcceptedPitchClasses={flashcardAcceptedPitchClasses}
         chordTonePitchClasses={improvisationOverlay.chordTonePitchClasses}
         currentScalePitchClasses={improvisationOverlay.currentScalePitchClasses}
         currentScaleGuideLabels={progress.settings.scaleGuideLabelMode === 'degrees'
@@ -2252,7 +2407,9 @@ export default function App() {
         scaleGuideLabelMode={progress.settings.scaleGuideLabelMode}
         circleVisualizationMode={progress.settings.circleVisualizationMode}
         immersiveMode={progress.settings.immersiveMode}
-        keyboardVisible={progress.settings.showKeyboardPanel}
+        notationVisible={notationVisible}
+        showFlashcardScaffolding={showFlashcardScaffolding}
+        keyboardVisible={effectiveKeyboardVisible}
         metronomeEnabled={progress.settings.metronomeEnabled}
         onTempoChange={setTempo}
         onToggleKeyboardVisible={toggleKeyboardVisible}
@@ -2278,6 +2435,7 @@ export default function App() {
         keyLocked={selectionLocks.key}
         guidedFlowMode={progress.exerciseConfig.guidedFlowMode}
         improvisationProgressionMode={progress.exerciseConfig.improvisationProgressionMode}
+        flashcardFlowMode={progress.exerciseConfig.flashcardFlowMode}
         chainMovement={progress.exerciseConfig.chainMovement}
         onSelectExercise={selectCurrentExercise}
         onSelectCurrentKey={selectCurrentKey}
@@ -2289,6 +2447,7 @@ export default function App() {
         onToggleCurriculumPreset={toggleCurriculumPreset}
         onSelectGuidedFlowMode={selectGuidedFlowMode}
         onSelectImprovisationProgressionMode={selectImprovisationProgressionMode}
+        onSelectFlashcardFlowMode={selectFlashcardFlowMode}
         onSetChainMovement={setChainMovement}
         onStepExerciseBackward={() => stepCurrentExercise('backward')}
         onStepExerciseForward={() => stepCurrentExercise('forward')}

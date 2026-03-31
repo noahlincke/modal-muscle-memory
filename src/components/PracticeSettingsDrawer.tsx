@@ -285,7 +285,12 @@ export function PracticeSettingsDrawer({
         <section className="settings-section">
           <div className="settings-section-copy">
             <h3>Voicing Focus</h3>
-            <p>Suggested from simplest to densest. Toggle the voicings you want rotating inside the current content.</p>
+            <p>{isImprovisationMode
+              ? 'Suggested from simplest to densest. Toggle the voicings you want rotating inside the current content.'
+              : (progress.exerciseConfig.mode === 'chord_flashcards'
+                ? 'Suggested from simplest to densest. In flashcards, selected voicings are all accepted ways to answer each chord.'
+                : 'Suggested from simplest to densest. Toggle the voicings you want rotating inside the current content.')}
+            </p>
           </div>
           <p className="settings-meta">
             {activeVoicings.length > 0

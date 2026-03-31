@@ -14,6 +14,7 @@ interface QwertyViewProps {
   clef: 'treble' | 'bass';
   octaveShift: number;
   targetNotes: number[];
+  flashcardAcceptedPitchClasses?: string[];
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
   currentScaleGuideLabels: Record<string, string>;
@@ -178,6 +179,7 @@ export function QwertyView({
   clef,
   octaveShift,
   targetNotes,
+  flashcardAcceptedPitchClasses = [],
   chordTonePitchClasses,
   currentScalePitchClasses,
   currentScaleGuideLabels,
@@ -262,6 +264,7 @@ export function QwertyView({
 
   const keys = useMemo(() => [...whiteKeys, ...blackKeys].sort((a, b) => a.midi - b.midi), [whiteKeys, blackKeys]);
   const targetSet = new Set(targetNotes);
+  const flashcardAcceptedSet = useMemo(() => new Set(flashcardAcceptedPitchClasses), [flashcardAcceptedPitchClasses]);
   const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
   const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
   const allowedImprovisationSet = new Set([
@@ -296,6 +299,9 @@ export function QwertyView({
 
     if (mode === 'guided') {
       return targetSet.has(midi) ? 'is-hit-correct' : 'is-hit-wrong';
+    }
+    if (mode === 'chord_flashcards') {
+      return flashcardAcceptedSet.has(midiToPitchClass(midi)) ? 'is-hit-correct' : 'is-hit-wrong';
     }
 
     return allowedImprovisationSet.has(midiToPitchClass(midi)) ? 'is-hit-correct' : 'is-hit-wrong';

@@ -14,6 +14,7 @@ import type {
 } from '../../types/music';
 import type { ExerciseConfig, ProgressState } from '../../types/progress';
 import { buildChordToken } from '../theory/chordToken';
+import { preferredCenterForClef } from '../theory/voicingPlacement';
 import { choosePhraseFocus } from './scheduler';
 import { orderedVoicingFamilies } from '../voicingFamilies';
 
@@ -29,6 +30,23 @@ interface GeneratePhraseInput {
   progressionOverrideId?: string;
   voicingFamilyOverride?: VoicingFamily;
 }
+
+const FLASHCARD_DISPLAY_VOICING_PRIORITY: VoicingFamily[] = [
+  'closed_7th',
+  'inversion_1',
+  'inversion_2',
+  'shell_137',
+  'shell_173',
+  'triad_root',
+  'guide_tone_37',
+  'guide_tone_73',
+  'rootless_379',
+  'rootless_7313',
+  'six_nine',
+  'ninth',
+  'slash',
+  'rootless',
+];
 
 function choose<T>(items: T[], random: () => number): T {
   const index = Math.floor(random() * items.length);
@@ -91,6 +109,17 @@ function parsePhraseIdMetadata(phraseId: string): PhraseIdMetadata | null {
     tonic,
     voicingFamily,
   };
+}
+
+function modeFlowId(config: ExerciseConfig): string {
+  if (config.mode === 'guided') {
+    return config.guidedFlowMode;
+  }
+  if (config.mode === 'improvisation') {
+    return config.improvisationProgressionMode;
+  }
+
+  return config.flashcardFlowMode;
 }
 
 function pickProgressionForFocus(
@@ -162,6 +191,22 @@ function isImprovementFlow(config: ExerciseConfig): boolean {
 function isRandomFlow(config: ExerciseConfig): boolean {
   return (config.mode === 'guided' && config.guidedFlowMode === 'random')
     || (config.mode === 'improvisation' && config.improvisationProgressionMode === 'random');
+}
+
+function isFlashcardMode(config: ExerciseConfig): boolean {
+  return config.mode === 'chord_flashcards';
+}
+
+function isFlashcardImprovementFlow(config: ExerciseConfig): boolean {
+  return isFlashcardMode(config) && config.flashcardFlowMode === 'targeting_improvement';
+}
+
+function isFlashcardRandomFlow(config: ExerciseConfig): boolean {
+  return isFlashcardMode(config) && config.flashcardFlowMode === 'random';
+}
+
+function isFlashcardMixedRecallFlow(config: ExerciseConfig): boolean {
+  return isFlashcardMode(config) && config.flashcardFlowMode === 'mixed_recall';
 }
 
 interface ImprovementTarget {
@@ -656,6 +701,135 @@ export function activeVoicingFamiliesForPractice(progress: ProgressState): Voici
   );
 }
 
+function weakestRomanForProgress(progress: ProgressState): string | null {
+  const weakNode = Object.entries(progress.nodeMastery)
+    .filter(([, stat]) => stat.attempts > 1)
+    .sort((a, b) => a[1].accuracyEwma - b[1].accuracyEwma)[0];
+
+  return weakNode ? parseRomanFromTokenId(weakNode[0]) : null;
+}
+
+function weakestTransitionRomans(progress: ProgressState): { fromRoman: string; toRoman: string } | null {
+  const weakestEdge = Object.entries(progress.edgeMastery)
+    .sort((a, b) => a[1].accuracyEwma - b[1].accuracyEwma)[0];
+
+  if (!weakestEdge) {
+    return null;
+  }
+
+  const [fromTokenId, toTokenId] = weakestEdge[0].split('->');
+  const fromRoman = parseRomanFromTokenId(fromTokenId);
+  const toRoman = parseRomanFromTokenId(toTokenId);
+
+  return fromRoman && toRoman ? { fromRoman, toRoman } : null;
+}
+
+function chooseFlashcardTonic(
+  roots: string[],
+  previousPhrase: Phrase | null | undefined,
+  tonicOverride: string | undefined,
+  improvementTarget: ImprovementTarget | null,
+  chainMovement: number,
+  mixedRecall: boolean,
+  random: () => number,
+): string {
+  if (tonicOverride) {
+    return tonicOverride;
+  }
+
+  if (roots.length === 0) {
+    return 'C';
+  }
+
+  if (previousPhrase && roots.length > 1) {
+    const chainedTonic = chooseChainedTonic(roots, previousPhrase.tonic, chainMovement, random);
+
+    if (mixedRecall) {
+      if (!improvementTarget?.tonic || !roots.includes(improvementTarget.tonic)) {
+        return chainedTonic;
+      }
+
+      const movement = clampUnit(chainMovement / 100);
+      return chooseWeighted([
+        {
+          value: chainedTonic,
+          weight: 1.6 + (movement * 2.8),
+        },
+        {
+          value: improvementTarget.tonic,
+          weight: 1.9 - (movement * 1.4),
+        },
+      ], random);
+    }
+
+    if (!improvementTarget?.tonic || !roots.includes(improvementTarget.tonic)) {
+      return chainedTonic;
+    }
+  }
+
+  if (improvementTarget?.tonic && roots.includes(improvementTarget.tonic)) {
+    return improvementTarget.tonic;
+  }
+
+  return choose(roots, random);
+}
+
+function pickFlashcardStepIndex(
+  progression: ProgressionDefinition,
+  progress: ProgressState,
+  flowMode: ExerciseConfig['flashcardFlowMode'],
+  random: () => number,
+): number {
+  if (progression.steps.length <= 1) {
+    return 0;
+  }
+
+  const weakRoman = weakestRomanForProgress(progress);
+  if (weakRoman && flowMode !== 'random') {
+    const weakIndices = progression.steps
+      .map((step, index) => ({ roman: step.roman, index }))
+      .filter((item) => item.roman === weakRoman)
+      .map((item) => item.index);
+    if (weakIndices.length > 0) {
+      return choose(weakIndices, random);
+    }
+  }
+
+  const weakTransition = weakestTransitionRomans(progress);
+  if (weakTransition && flowMode !== 'random') {
+    for (let index = 0; index < progression.steps.length - 1; index += 1) {
+      const fromStep = progression.steps[index];
+      const toStep = progression.steps[index + 1];
+      if (fromStep.roman === weakTransition.fromRoman && toStep.roman === weakTransition.toRoman) {
+        return random() < 0.5 ? index : index + 1;
+      }
+    }
+  }
+
+  return Math.floor(random() * progression.steps.length);
+}
+
+function selectFlashcardDisplayVoicing(
+  progression: ProgressionDefinition,
+  activeVoicings: Set<VoicingFamily>,
+  voicingFamilyOverride: VoicingFamily | undefined,
+): VoicingFamily {
+  const available = progressionVoicingPool(progression, activeVoicings);
+  if (available.length === 0) {
+    return progression.allowedVoicings[0];
+  }
+
+  if (available.includes('closed_7th')) {
+    return 'closed_7th';
+  }
+
+  if (voicingFamilyOverride && available.includes(voicingFamilyOverride)) {
+    return voicingFamilyOverride;
+  }
+
+  return FLASHCARD_DISPLAY_VOICING_PRIORITY.find((voicing) => available.includes(voicing)) ?? available[0];
+}
+
 export function generatePhrase({
   config,
   progress,
@@ -668,6 +842,21 @@ export function generatePhrase({
   progressionOverrideId,
   voicingFamilyOverride,
 }: GeneratePhraseInput): Phrase {
+  if (isFlashcardMode(config)) {
+    return generateFlashcardPhrase({
+      config,
+      progress,
+      tempo,
+      previousPhrase,
+      random,
+      midiRange,
+      focusOverride,
+      tonicOverride,
+      progressionOverrideId,
+      voicingFamilyOverride,
+    });
+  }
+
   const baseProgressions = playableProgressions(config);
   const activeVoicings = new Set(activeVoicingPool(config, baseProgressions));
   const progressions = baseProgressions.filter((progression) =>
@@ -755,6 +944,14 @@ export function generatePhrase({
 
   const tokensById: Phrase['tokensById'] = {};
   const events: Phrase['events'] = [];
+  const effectiveMidiRange = midiRange ?? {
+    min: progress.settings.registerMin,
+    max: progress.settings.registerMax,
+  };
+  const preferredCenterMidi = preferredCenterForClef(
+    progress.settings.staffClef,
+    effectiveMidiRange,
+  );
 
   let previousMidiVoicing: number[] | undefined = carryForwardVoicingFamily
     ? previousPhraseLastToken?.midiVoicing
@@ -767,12 +964,10 @@ export function generatePhrase({
       lane,
       roman: step.roman,
       voicingFamily,
-      midiRange: midiRange ?? {
-        min: progress.settings.registerMin,
-        max: progress.settings.registerMax,
-      },
+      midiRange: effectiveMidiRange,
       prevVoicing: previousMidiVoicing,
       maxVoiceMotionSemitones: progression.maxVoiceMotionSemitones,
+      preferredCenterMidi,
     });
 
     tokensById[token.id] = token;
@@ -804,13 +999,140 @@ export function generatePhrase({
   });
 
   return {
-    id: `phrase:${config.mode}:${lane}:${config.mode === 'guided' ? config.guidedFlowMode : config.improvisationProgressionMode}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
+    id: `phrase:${config.mode}:${lane}:${modeFlowId(config)}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
     lane,
     tonic,
     tempo,
     timeSignature: '4/4',
     events,
     tokensById,
+    progressionId: progression.id,
+    progression,
+    focusType: focus,
+  };
+}
+
+function generateFlashcardPhrase({
+  config,
+  progress,
+  tempo,
+  previousPhrase,
+  random = Math.random,
+  midiRange,
+  focusOverride,
+  tonicOverride,
+  progressionOverrideId,
+  voicingFamilyOverride,
+}: GeneratePhraseInput): Phrase {
+  const progressions = playableProgressions(config);
+  const activeVoicings = new Set(activeVoicingPool(config, progressions));
+  if (progressions.length === 0) {
+    throw new Error('No progressions match the current practice filter.');
+  }
+
+  const roots = resolveIncludedKeyRoots(config.keySet, config.includedKeyRoots);
+  if (roots.length === 0 && !tonicOverride) {
+    throw new Error('No keys are included in the current key set.');
+  }
+
+  const focus = focusOverride ?? choosePhraseFocus({
+    progress,
+    difficulty: 1,
+    random,
+  });
+  const chainSource = isFlashcardMixedRecallFlow(config) ? previousPhrase : null;
+  const improvementTarget = (isFlashcardImprovementFlow(config) || isFlashcardMixedRecallFlow(config))
+    ? pickImprovementTarget(
+      progressions,
+      progress,
+      roots,
+      activeVoicings,
+      config.chainMovement,
+      random,
+    )
+    : null;
+
+  const preferredProgression = progressionOverrideId
+    ? progressions.find((progression) => progression.id === progressionOverrideId) ?? null
+    : (isFlashcardRandomFlow(config)
+      ? null
+      : pickChainedProgression(progressions, chainSource, config.chainMovement, random)
+        ?? improvementTarget?.progression
+        ?? pickProgressionForFocus(progressions, focus, progress, random));
+  const selectionPool = chainSource ? chainedSelectionPool(progressions, chainSource) : progressions;
+
+  const progression = progressionOverrideId
+    ? (progressions.find((candidate) => candidate.id === progressionOverrideId) ?? preferredProgression)
+    : pickProgressionWithNovelty(
+      selectionPool,
+      progressions,
+      preferredProgression ?? choose(progressions, random),
+      recentProgressionIds(progressions, progress, previousPhrase),
+      config.chainMovement,
+      random,
+    );
+
+  if (!progression) {
+    throw new Error('The requested progression is not available for the current practice filter.');
+  }
+
+  const tonic = chooseFlashcardTonic(
+    roots,
+    previousPhrase,
+    tonicOverride,
+    improvementTarget,
+    config.chainMovement,
+    isFlashcardMixedRecallFlow(config),
+    random,
+  );
+  const stepIndex = pickFlashcardStepIndex(
+    progression,
+    progress,
+    config.flashcardFlowMode,
+    random,
+  );
+  const step = progression.steps[stepIndex];
+  const voicingFamily = selectFlashcardDisplayVoicing(
+    progression,
+    activeVoicings,
+    voicingFamilyOverride,
+  );
+  const effectiveMidiRange = midiRange ?? {
+    min: progress.settings.registerMin,
+    max: progress.settings.registerMax,
+  };
+  const preferredCenterMidi = preferredCenterForClef(
+    progress.settings.staffClef,
+    effectiveMidiRange,
+  );
+  const token = buildChordToken({
+    tonic,
+    lane: progression.lane,
+    roman: step.roman,
+    voicingFamily,
+    midiRange: effectiveMidiRange,
+    maxVoiceMotionSemitones: progression.maxVoiceMotionSemitones,
+    preferredCenterMidi,
+  });
+
+  return {
+    id: `phrase:${config.mode}:${progression.lane}:${modeFlowId(config)}:${progression.id}:${tonic}:${voicingFamily}:${Date.now().toString(36)}`,
+    lane: progression.lane,
+    tonic,
+    tempo,
+    timeSignature: '4/4',
+    events: [{
+      id: `${progression.id}:flashcard:${stepIndex + 1}`,
+      chordTokenId: token.id,
+      progressionStepIndex: stepIndex,
+      bar: 1,
+      beat: 1,
+      durationBeats: 4,
+      rhythmCellId: 'block_whole',
+    }],
+    tokensById: {
+      [token.id]: token,
+    },
     progressionId: progression.id,
     progression,
     focusType: focus,

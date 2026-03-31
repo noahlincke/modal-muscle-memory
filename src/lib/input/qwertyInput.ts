@@ -61,7 +61,7 @@ export function normalizeQwertyOctaveShift(nextShift: number): number {
 }
 
 export function defaultQwertyOctaveShiftForClef(clef: 'treble' | 'bass'): number {
-  return clef === 'bass' ? -1 : 0;
+  return clef === 'bass' ? -2 : 0;
 }
 
 export function qwertyFriendlyRangeForOctaveShift(octaveShift: number): { min: number; max: number } {

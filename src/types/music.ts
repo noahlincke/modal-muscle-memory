@@ -27,10 +27,11 @@ export type ContentBlockId =
   | 'functional_minor_extensions'
   | 'symmetric_color';
 
-export type ExerciseMode = 'guided' | 'improvisation';
+export type ExerciseMode = 'guided' | 'improvisation' | 'chord_flashcards';
 export type VoicingPracticeMode = 'auto' | 'custom';
 export type GuidedFlowMode = 'random' | 'targeting_improvement' | 'musical_chaining';
 export type ImprovisationProgressionMode = 'random' | 'targeting_improvement' | 'chained';
+export type FlashcardFlowMode = 'random' | 'targeting_improvement' | 'mixed_recall';
 export type ImprovisationAdvanceMode = 'immediate' | 'footpedal_release';
 export type CircleVisualizationMode = 'intervals' | 'chord_arrows' | 'hidden';
 

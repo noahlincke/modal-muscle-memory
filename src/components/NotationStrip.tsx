@@ -40,6 +40,10 @@ function notationPalette(theme: NotationStripProps['theme']): {
   };
 }
 
+function chordLabelFontSize(exerciseMode: ExerciseMode): number {
+  return exerciseMode === 'chord_flashcards' ? 18 : 24;
+}
+
 function durationFromBeats(durationBeats: number): string {
   if (durationBeats === 4) return 'w';
   if (durationBeats === 3) return 'hd';
@@ -456,7 +460,7 @@ export function NotationStrip({
           return;
         }
         const xPos = entry.staveNote.getAbsoluteX() - 16;
-        context.setFont('18px "IBM Plex Sans", sans-serif');
+        context.setFont(`${chordLabelFontSize(exerciseMode)}px "IBM Plex Sans", sans-serif`);
         context.setFillStyle(entry.eventColor);
         context.fillText(entry.token.symbol, xPos, chordLabelY);
       });

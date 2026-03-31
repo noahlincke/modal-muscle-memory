@@ -1,4 +1,4 @@
-import type { CircleVisualizationMode, ImprovisationAdvanceMode } from './music';
+import type { CircleVisualizationMode, FlashcardFlowMode, ImprovisationAdvanceMode } from './music';
 import type {
   ContentBlockId,
   CurriculumPresetId,
@@ -32,6 +32,7 @@ export interface ExerciseConfig {
   selectedVoicings: VoicingFamily[];
   guidedFlowMode: GuidedFlowMode;
   improvisationProgressionMode: ImprovisationProgressionMode;
+  flashcardFlowMode: FlashcardFlowMode;
   improvisationAdvanceMode: ImprovisationAdvanceMode;
   chainMovement: number;
 }

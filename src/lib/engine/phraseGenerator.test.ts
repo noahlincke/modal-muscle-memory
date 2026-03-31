@@ -77,6 +77,60 @@ describe('phraseGenerator', () => {
     });
   });
 
+  it('places guided progressions higher in treble than bass for hand comfort', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'guide_tone_foundations');
+
+    const treblePhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress: {
+        ...progress,
+        settings: {
+          ...progress.settings,
+          staffClef: 'treble',
+          registerMin: 60,
+          registerMax: 84,
+        },
+      },
+      tempo: 78,
+      random: seededRandom(19),
+      progressionOverrideId: 'guide_tone_ii_v_i',
+      tonicOverride: 'Bb',
+      voicingFamilyOverride: 'guide_tone_37',
+    });
+    const bassPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress: {
+        ...progress,
+        settings: {
+          ...progress.settings,
+          staffClef: 'bass',
+          registerMin: 31,
+          registerMax: 55,
+        },
+      },
+      tempo: 78,
+      random: seededRandom(19),
+      progressionOverrideId: 'guide_tone_ii_v_i',
+      tonicOverride: 'Bb',
+      voicingFamilyOverride: 'guide_tone_37',
+    });
+
+    const treblePredominant = treblePhrase.tokensById[
+      treblePhrase.events.find((event) => event.progressionStepIndex === 0)?.chordTokenId ?? ''
+    ];
+    const bassPredominant = bassPhrase.tokensById[
+      bassPhrase.events.find((event) => event.progressionStepIndex === 0)?.chordTokenId ?? ''
+    ];
+
+    expect(treblePredominant.symbol).toBe('Cm7');
+    expect(bassPredominant.symbol).toBe('Cm7');
+    expect(treblePredominant.midiVoicing[0] - bassPredominant.midiVoicing[0]).toBeGreaterThanOrEqual(12);
+    expect(treblePredominant.midiVoicing[0]).toBeGreaterThanOrEqual(72);
+    expect(treblePredominant.midiVoicing[treblePredominant.midiVoicing.length - 1] - treblePredominant.midiVoicing[0]).toBeLessThanOrEqual(12);
+    expect(bassPredominant.midiVoicing[bassPredominant.midiVoicing.length - 1] - bassPredominant.midiVoicing[0]).toBeLessThanOrEqual(12);
+  });
+
   it('can generate at least 30 unique starter phrases across MVP lanes', () => {
     const progress = createDefaultProgressState();
     const random = seededRandom(77);
@@ -153,6 +207,78 @@ describe('phraseGenerator', () => {
     expect(phrase.events.every((event) => event.rhythmCellId === 'charleston')).toBe(true);
     expect(phrase.events.some((event) => event.beat === 2.5)).toBe(true);
     expect(phrase.events.every((event) => event.rhythmCellId === 'charleston')).toBe(true);
+  });
+
+  it('builds single-card flashcard phrases from the existing filtered pool', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'chord_flashcards';
+    progress.exerciseConfig.flashcardFlowMode = 'mixed_recall';
+    progress.exerciseConfig.selectedVoicings = ['closed_7th', 'inversion_1', 'inversion_2'];
+
+    const phrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(31),
+    });
+
+    const token = phrase.tokensById[phrase.events[0].chordTokenId];
+
+    expect(phrase.events).toHaveLength(1);
+    expect(phrase.id).toContain(':chord_flashcards:');
+    expect(token).toBeDefined();
+    expect(['closed_7th', 'inversion_1', 'inversion_2']).toContain(token.voicingFamily);
+    expect(playableProgressionIds(progress.exerciseConfig, progress)).toContain(phrase.progressionId);
+  });
+
+  it('prefers closed 7th for flashcard display even when an inversion override is supplied', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'chord_flashcards';
+    progress.exerciseConfig.flashcardFlowMode = 'mixed_recall';
+    progress.exerciseConfig.selectedVoicings = ['closed_7th', 'inversion_1'];
+
+    const phrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(17),
+      progressionOverrideId: 'ionian_turnaround',
+      tonicOverride: 'C',
+      voicingFamilyOverride: 'inversion_1',
+    });
+
+    const token = phrase.tokensById[phrase.events[0].chordTokenId];
+
+    expect(token.voicingFamily).toBe('closed_7th');
+  });
+
+  it('lets mixed-recall flashcards move keys when movement is high', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig.mode = 'chord_flashcards';
+    progress.exerciseConfig.flashcardFlowMode = 'mixed_recall';
+    progress.exerciseConfig.chainMovement = 100;
+    progress.exerciseConfig.keySet = 'max_2_accidentals';
+    progress.exerciseConfig.includedKeyRoots = rootsForKeySet('max_2_accidentals');
+    progress.exerciseConfig.selectedVoicings = ['closed_7th', 'inversion_1', 'inversion_2'];
+
+    const firstPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(41),
+    });
+
+    const secondPhrase = generatePhrase({
+      config: progress.exerciseConfig,
+      progress,
+      tempo: 78,
+      random: seededRandom(43),
+      previousPhrase: firstPhrase,
+    });
+
+    expect(progress.exerciseConfig.includedKeyRoots).toContain(firstPhrase.tonic);
+    expect(progress.exerciseConfig.includedKeyRoots).toContain(secondPhrase.tonic);
+    expect(secondPhrase.tonic).not.toBe(firstPhrase.tonic);
   });
 
   it('reports zero matching progressions when the selected filters have no overlap', () => {

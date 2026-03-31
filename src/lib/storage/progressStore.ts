@@ -10,7 +10,7 @@ import {
 } from '../../content/curriculum';
 import { normalizeIncludedKeyRoots, rootsForKeySet } from '../../content/keys';
 import { getPackForLane } from '../../content/packs';
-import type { ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
+import type { ExerciseMode, ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
 import type {
   AttemptRecord,
   ExerciseConfig,
@@ -19,10 +19,11 @@ import type {
   UnlockState,
   UserSettings,
 } from '../../types/progress';
+import { registerForClef, type StaffClef } from '../theory/voicingPlacement';
 import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
@@ -69,9 +70,26 @@ function defaultExerciseConfig(): ExerciseConfig {
     selectedVoicings: [],
     guidedFlowMode: 'targeting_improvement',
     improvisationProgressionMode: 'chained',
+    flashcardFlowMode: 'mixed_recall',
     improvisationAdvanceMode: 'immediate',
     chainMovement: 35,
   }, 'major_foundations');
+}
+
+function normalizeExerciseMode(value: unknown): ExerciseMode {
+  if (value === 'improvisation' || value === 'chord_flashcards') {
+    return value;
+  }
+
+  return 'guided';
+}
+
+function normalizeFlashcardFlowMode(value: unknown): ExerciseConfig['flashcardFlowMode'] {
+  if (value === 'random' || value === 'targeting_improvement') {
+    return value;
+  }
+
+  return 'mixed_recall';
 }
 
 function normalizeImprovisationAdvanceMode(value: unknown): ExerciseConfig['improvisationAdvanceMode'] {
@@ -142,7 +160,12 @@ function normalizeCircleVisualizationMode(value: unknown): UserSettings['circleV
   return 'intervals';
 }
 
+function normalizeStaffClef(value: unknown): StaffClef {
+  return value === 'bass' ? 'bass' : 'treble';
+}
+
 function defaultSettings(): UserSettings {
+  const trebleRegister = registerForClef('treble');
   return {
     tempo: 78,
     metronomeEnabled: true,
@@ -150,8 +173,8 @@ function defaultSettings(): UserSettings {
     practiceTrackingMode: 'test',
     scaleGuideLabelMode: 'degrees',
     staffClef: 'treble',
-    registerMin: 48,
-    registerMax: 72,
+    registerMin: trebleRegister.min,
+    registerMax: trebleRegister.max,
     scoringMode: 'lenient',
     midiInputId: null,
     enableReferencePlayback: true,
@@ -249,12 +272,15 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
   const rawSettingsSource = (raw.settings ?? {}) as Record<string, unknown>;
   const rawSettings = { ...rawSettingsSource };
   delete rawSettings.keyboardFriendlyVoicings;
+  const staffClef = normalizeStaffClef(rawSettings.staffClef);
+  const register = registerForClef(staffClef);
 
   return {
     schemaVersion: SCHEMA_VERSION,
     exerciseConfig: {
       ...presetDefaults,
       ...raw.exerciseConfig,
+      mode: normalizeExerciseMode(raw.exerciseConfig?.mode),
       curriculumPresetId,
       lane: resolvedLane,
       enabledContentBlockIds: normalizeContentBlockIds(
@@ -278,12 +304,18 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
       voicingPracticeMode: normalizeVoicingPracticeMode(raw.exerciseConfig?.voicingPracticeMode),
       selectedVoicings: normalizeSelectedVoicings(raw.exerciseConfig?.selectedVoicings),
       guidedFlowMode: raw.exerciseConfig?.guidedFlowMode ?? presetDefaults.guidedFlowMode,
+      improvisationProgressionMode:
+        raw.exerciseConfig?.improvisationProgressionMode ?? presetDefaults.improvisationProgressionMode,
+      flashcardFlowMode: normalizeFlashcardFlowMode(raw.exerciseConfig?.flashcardFlowMode),
       improvisationAdvanceMode: normalizeImprovisationAdvanceMode(raw.exerciseConfig?.improvisationAdvanceMode),
       chainMovement: normalizeChainMovement(raw.exerciseConfig?.chainMovement),
     },
     settings: {
       ...defaults.settings,
       ...rawSettings,
+      staffClef,
+      registerMin: register.min,
+      registerMax: register.max,
       scaleGuideLabelMode: normalizeScaleGuideLabelMode(rawSettings.scaleGuideLabelMode),
       circleVisualizationMode: normalizeCircleVisualizationMode(rawSettings.circleVisualizationMode),
     },

@@ -65,6 +65,7 @@ interface PracticeLayoutProps {
   qwertyOctaveShift: number;
   tempo: number;
   keyboardTargetNotes: number[];
+  flashcardAcceptedPitchClasses: string[];
   scaleGuideLabelMode: 'degrees' | 'note_names' | 'hidden';
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
@@ -73,6 +74,8 @@ interface PracticeLayoutProps {
   nextScaleGuideLabels: Record<string, string>;
   circleVisualizationMode: CircleVisualizationMode;
   immersiveMode: boolean;
+  notationVisible: boolean;
+  showFlashcardScaffolding: boolean;
   keyboardVisible: boolean;
   metronomeEnabled: boolean;
   onTempoChange: (tempo: number) => void;
@@ -99,6 +102,7 @@ interface PracticeLayoutProps {
   keyLocked: boolean;
   guidedFlowMode: 'random' | 'targeting_improvement' | 'musical_chaining';
   improvisationProgressionMode: 'random' | 'targeting_improvement' | 'chained';
+  flashcardFlowMode: 'random' | 'targeting_improvement' | 'mixed_recall';
   chainMovement: number;
   onSelectExercise: (progressionId: string) => void;
   onSelectCurrentKey: (root: string) => void;
@@ -110,6 +114,7 @@ interface PracticeLayoutProps {
   onToggleCurriculumPreset: (presetId: CurriculumPresetId) => void;
   onSelectGuidedFlowMode: (mode: 'random' | 'targeting_improvement' | 'musical_chaining') => void;
   onSelectImprovisationProgressionMode: (mode: 'random' | 'targeting_improvement' | 'chained') => void;
+  onSelectFlashcardFlowMode: (mode: 'random' | 'targeting_improvement' | 'mixed_recall') => void;
   onSetChainMovement: (chainMovement: number) => void;
   onStepExerciseBackward: () => void;
   onStepExerciseForward: () => void;
@@ -305,6 +310,22 @@ function chordStatusLabel(evaluation: EvaluationResult | null): string {
   return hasNonTimingError ? 'X' : '✓';
 }
 
+function FlashcardPrompt({
+  symbol,
+  revealed,
+}: {
+  symbol: string;
+  revealed: boolean;
+}) {
+  return (
+    <article className={`flashcard-prompt ${revealed ? 'is-revealed' : ''}`.trim()}>
+      <p className="flashcard-prompt-caption">Play This Chord</p>
+      <strong>{symbol}</strong>
+      <span>{revealed ? 'Reference staff and keyboard revealed below.' : 'No notation hint until you miss.'}</span>
+    </article>
+  );
+}
+
 export function PracticeLayout({
   exerciseMode,
   curriculumLabel,
@@ -328,6 +349,7 @@ export function PracticeLayout({
   qwertyOctaveShift,
   tempo,
   keyboardTargetNotes,
+  flashcardAcceptedPitchClasses,
   scaleGuideLabelMode,
   chordTonePitchClasses,
   currentScalePitchClasses,
@@ -336,6 +358,8 @@ export function PracticeLayout({
   nextScaleGuideLabels,
   circleVisualizationMode,
   immersiveMode,
+  notationVisible,
+  showFlashcardScaffolding,
   keyboardVisible,
   metronomeEnabled,
   onTempoChange,
@@ -362,6 +386,7 @@ export function PracticeLayout({
   keyLocked,
   guidedFlowMode,
   improvisationProgressionMode,
+  flashcardFlowMode,
   chainMovement,
   onSelectExercise,
   onSelectCurrentKey,
@@ -373,6 +398,7 @@ export function PracticeLayout({
   onToggleCurriculumPreset,
   onSelectGuidedFlowMode,
   onSelectImprovisationProgressionMode,
+  onSelectFlashcardFlowMode,
   onSetChainMovement,
   onStepExerciseBackward,
   onStepExerciseForward,
@@ -400,8 +426,11 @@ export function PracticeLayout({
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
   const chordLabel = chordStatusLabel(latestEvaluation);
   const chordHighlightColor = intervalColorForTonicAndRoot(phrase?.tonic ?? null, currentToken?.pitchClasses[0] ?? null);
-  const modeLabel = exerciseMode === 'improvisation' ? 'Improvisation' : 'Guided';
+  const modeLabel = exerciseMode === 'improvisation'
+    ? 'Improvisation'
+    : (exerciseMode === 'chord_flashcards' ? 'Chord Flashcards' : 'Guided');
   const showPerformanceStats = exerciseMode !== 'improvisation';
+  const isFlashcardMode = exerciseMode === 'chord_flashcards';
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
   const [dismissedQwertyWarning, setDismissedQwertyWarning] = useState(false);
   const [isPracticeTrackingFlashing, setIsPracticeTrackingFlashing] = useState(false);
@@ -1036,18 +1065,31 @@ export function PracticeLayout({
                   >
                     Improvisation
                   </button>
+                  <button
+                    type="button"
+                    className={`practice-mode-toggle-option ${exerciseMode === 'chord_flashcards' ? 'active' : ''}`.trim()}
+                    onClick={() => onSelectMode('chord_flashcards')}
+                    aria-pressed={exerciseMode === 'chord_flashcards'}
+                  >
+                    Flashcards
+                  </button>
                 </div>
-                <p className="settings-meta">Switch between strict chord drilling and the scale-guided improvisation path.</p>
+                <p className="settings-meta">Switch between guided drilling, scale-guided improvisation, and isolated chord recall.</p>
               </section>
 
               <section className="settings-section">
                 <div className="settings-section-copy">
-                  <h3>{exerciseMode === 'improvisation' ? 'Improvisation Flow' : 'Guided Flow'}</h3>
+                  <h3>{exerciseMode === 'improvisation'
+                    ? 'Improvisation Flow'
+                    : (exerciseMode === 'chord_flashcards' ? 'Flashcard Flow' : 'Guided Flow')}
+                  </h3>
                 </div>
                 <div
                   className="practice-mode-toggle practice-mode-toggle-triple"
                   role="tablist"
-                  aria-label={exerciseMode === 'improvisation' ? 'Improvisation flow' : 'Guided flow'}
+                  aria-label={exerciseMode === 'improvisation'
+                    ? 'Improvisation flow'
+                    : (exerciseMode === 'chord_flashcards' ? 'Flashcard flow' : 'Guided flow')}
                 >
                   {exerciseMode === 'improvisation' ? (
                     <>
@@ -1071,6 +1113,30 @@ export function PracticeLayout({
                         onClick={() => onSelectImprovisationProgressionMode('chained')}
                       >
                         Chained
+                      </button>
+                    </>
+                  ) : exerciseMode === 'chord_flashcards' ? (
+                    <>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${flashcardFlowMode === 'random' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectFlashcardFlowMode('random')}
+                      >
+                        Random
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${flashcardFlowMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectFlashcardFlowMode('targeting_improvement')}
+                      >
+                        Improvement
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${flashcardFlowMode === 'mixed_recall' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectFlashcardFlowMode('mixed_recall')}
+                      >
+                        Mixed Recall
                       </button>
                     </>
                   ) : (
@@ -1112,7 +1178,9 @@ export function PracticeLayout({
                     step={1}
                     value={chainMovement}
                     onChange={(event) => onSetChainMovement(Number(event.target.value))}
-                    aria-label={exerciseMode === 'improvisation' ? 'Improvisation flow motion' : 'Guided flow motion'}
+                    aria-label={exerciseMode === 'improvisation'
+                      ? 'Improvisation flow motion'
+                      : (exerciseMode === 'chord_flashcards' ? 'Flashcard flow motion' : 'Guided flow motion')}
                   />
                   <div className="settings-range-labels" aria-hidden="true">
                     <span>Repetitive</span>
@@ -1149,33 +1217,40 @@ export function PracticeLayout({
 
       {walkthroughActive ? <div className="walkthrough-overlay" aria-hidden="true" /> : null}
 
-      <div className={`practice-workstack ${circleVisualizationMode === 'hidden' ? 'is-circle-hidden' : ''}`.trim()}>
+      <div className={`practice-workstack ${(circleVisualizationMode === 'hidden' || isFlashcardMode) ? 'is-circle-hidden' : ''}`.trim()}>
         <div
-          className="practice-notation-slot is-circle-cycle-target"
-          role="button"
-          tabIndex={0}
-          aria-label={notationStripLabel}
-          title={notationStripLabel}
-          onClick={onToggleCircleVisualizationMode}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onToggleCircleVisualizationMode();
-            }
-          }}
+          className={`practice-notation-slot ${!isFlashcardMode ? 'is-circle-cycle-target' : ''}`.trim()}
+          role={!isFlashcardMode ? 'button' : undefined}
+          tabIndex={!isFlashcardMode ? 0 : undefined}
+          aria-label={!isFlashcardMode ? notationStripLabel : undefined}
+          title={!isFlashcardMode ? notationStripLabel : undefined}
+          onClick={!isFlashcardMode ? onToggleCircleVisualizationMode : undefined}
+          onKeyDown={!isFlashcardMode
+            ? (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onToggleCircleVisualizationMode();
+                }
+              }
+            : undefined}
         >
-          <NotationStrip
-            phrase={phrase}
-            hasCompatiblePhrases={hasCompatiblePhrases}
-            clef={clef}
-            exerciseMode={exerciseMode}
-            currentEventIndex={currentEventIndex}
-            completedEventIds={completedEventIds}
-            theme={theme}
-          />
+          {isFlashcardMode && currentToken ? (
+            <FlashcardPrompt symbol={currentToken.symbol} revealed={showFlashcardScaffolding} />
+          ) : null}
+          {notationVisible ? (
+            <NotationStrip
+              phrase={phrase}
+              hasCompatiblePhrases={hasCompatiblePhrases}
+              clef={clef}
+              exerciseMode={exerciseMode}
+              currentEventIndex={currentEventIndex}
+              completedEventIds={completedEventIds}
+              theme={theme}
+            />
+          ) : null}
         </div>
 
-        {circleVisualizationMode !== 'hidden' ? (
+        {circleVisualizationMode !== 'hidden' && !isFlashcardMode ? (
           <aside className="practice-sidebar">
             <CircleOfFifths
               currentTonic={phrase?.tonic ?? null}
@@ -1210,6 +1285,7 @@ export function PracticeLayout({
                 clef={clef}
                 octaveShift={qwertyOctaveShift}
                 targetNotes={keyboardTargetNotes}
+                flashcardAcceptedPitchClasses={flashcardAcceptedPitchClasses}
                 chordTonePitchClasses={chordTonePitchClasses}
                 currentScalePitchClasses={currentScalePitchClasses}
                 currentScaleGuideLabels={currentScaleGuideLabels}
@@ -1226,6 +1302,7 @@ export function PracticeLayout({
                 minMidi={minMidi}
                 maxMidi={maxMidi}
                 targetNotes={keyboardTargetNotes}
+                flashcardAcceptedPitchClasses={flashcardAcceptedPitchClasses}
                 chordTonePitchClasses={chordTonePitchClasses}
                 currentScalePitchClasses={currentScalePitchClasses}
                 currentScaleGuideLabels={currentScaleGuideLabels}
