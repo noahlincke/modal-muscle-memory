@@ -22,8 +22,8 @@ describe('qwertyInput', () => {
     expect(noteNumberForBinding(binding!, -1)).toBe(48);
     expect(noteNumberForBinding(binding!, 1)).toBe(72);
     expect(qwertyAnchorLabel(-1)).toBe('A = C3');
-    expect(defaultQwertyOctaveShiftForClef('bass')).toBe(-1);
-    expect(qwertyFriendlyRangeForOctaveShift(-1)).toEqual({ min: 48, max: 67 });
+    expect(defaultQwertyOctaveShiftForClef('bass')).toBe(-2);
+    expect(qwertyFriendlyRangeForOctaveShift(-2)).toEqual({ min: 36, max: 55 });
   });
 
   it('normalizes octave controls and emits note messages', () => {

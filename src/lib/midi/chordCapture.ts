@@ -35,6 +35,14 @@ export class ChordCapture {
     return new Set(Array.from(this.activeNoteNumbers).map((note) => midiToPitchClass(note)));
   }
 
+  get submissionNoteNumbers(): number[] {
+    if (this.heldNoteNumbers.size > 0) {
+      return Array.from(this.heldNoteNumbers).sort((a, b) => a - b);
+    }
+
+    return Array.from(new Set(this.recentNoteOns.map(({ note }) => note))).sort((a, b) => a - b);
+  }
+
   ingest(
     message: ParsedMidiMessage,
     requiredPitchClasses: string[] = [],
@@ -95,15 +103,15 @@ export class ChordCapture {
   }
 
   private containsRequired(requiredPitchClasses: string[]): boolean {
-    const active = this.activePitchClasses;
-    return requiredPitchClasses.every((pitchClass) => active.has(pitchClass));
+    const submissionPitchClasses = new Set(this.submissionNoteNumbers.map((note) => midiToPitchClass(note)));
+    return requiredPitchClasses.every((pitchClass) => submissionPitchClasses.has(pitchClass));
   }
 
   private buildSubmission(
     timestamp: number,
     reason: ChordSubmission['reason'],
   ): ChordSubmission {
-    const notes = Array.from(this.activeNoteNumbers).sort((a, b) => a - b);
+    const notes = this.submissionNoteNumbers;
     const pitchClasses = unique(notes.map((note) => midiToPitchClass(note)));
     this.clearRecent();
     return {

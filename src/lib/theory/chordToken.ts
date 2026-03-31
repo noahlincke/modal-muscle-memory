@@ -3,6 +3,7 @@ import type { ChordToken, ModeLane, VoicingFamily } from '../../types/music';
 import { normalizePitchClass, spellIntervalAbove } from './noteUtils';
 import { resolveRomanToChord } from './roman';
 import { solveVoiceLeading } from './voiceLeading';
+import { transposeVoicingByOctaveTowardCenter } from './voicingPlacement';
 
 interface BuildChordTokenInput {
   tonic: string;
@@ -12,6 +13,7 @@ interface BuildChordTokenInput {
   midiRange: { min: number; max: number };
   prevVoicing?: number[];
   maxVoiceMotionSemitones: number;
+  preferredCenterMidi?: number;
 }
 
 interface ChordToneSet {
@@ -27,7 +29,7 @@ function maxSpanForVoicing(voicingFamily: VoicingFamily): number | undefined {
   switch (voicingFamily) {
     case 'guide_tone_37':
     case 'guide_tone_73':
-      return 10;
+      return 8;
     case 'shell_137':
     case 'shell_173':
     case 'triad_root':
@@ -37,11 +39,11 @@ function maxSpanForVoicing(voicingFamily: VoicingFamily): number | undefined {
     case 'closed_7th':
     case 'rootless_379':
     case 'rootless_7313':
-      return 14;
+      return 12;
     case 'six_nine':
     case 'ninth':
     case 'rootless':
-      return 16;
+      return 12;
     default:
       return undefined;
   }
@@ -271,6 +273,7 @@ export function buildChordToken({
   midiRange,
   prevVoicing,
   maxVoiceMotionSemitones,
+  preferredCenterMidi,
 }: BuildChordTokenInput): ChordToken {
   const resolved = resolveRomanToChord(tonic, roman);
   const tones = deriveChordTones(resolved.rootSpelling, resolved.quality);
@@ -280,13 +283,14 @@ export function buildChordToken({
   const pitchClasses = tonalDetected.length > 0 ? tonalDetected : voicing.required.map(normalizePitchClass);
   const orderedPitchClasses = voicing.ordered.map(normalizePitchClass);
 
-  const midiVoicing = solveVoiceLeading({
+  const midiVoicing = transposeVoicingByOctaveTowardCenter(solveVoiceLeading({
     orderedPitchClasses,
     midiRange,
     prevVoicing,
     maxMotionSemitones: maxVoiceMotionSemitones,
     maxSpanSemitones: maxSpanForVoicing(voicingFamily),
-  });
+    preferredCenterMidi,
+  }), midiRange, preferredCenterMidi ?? ((midiRange.min + midiRange.max) / 2));
 
   const inversion = voicingFamily === 'inversion_1'
     ? 1

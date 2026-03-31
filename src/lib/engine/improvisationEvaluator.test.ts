@@ -26,10 +26,29 @@ describe('evaluateImprovisationAttempt', () => {
     expect(result.errors).toHaveLength(0);
   });
 
-  it('fails when the right pitch classes are played in the wrong octave or voicing', () => {
+  it('passes when the exact voicing is played at another octave', () => {
     const result = evaluateImprovisationAttempt({
       targetToken: token,
       playedNotes: token.midiVoicing.map((note) => note + 12),
+      allowedPitchClasses: ['D', 'E', 'F', 'G', 'A', 'B', 'C'],
+      expectedTimeMs: 1000,
+      submittedAtMs: 1080,
+      scoringMode: 'lenient',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('fails when the chord is spread across mixed octaves', () => {
+    const result = evaluateImprovisationAttempt({
+      targetToken: token,
+      playedNotes: [
+        token.midiVoicing[0] - 12,
+        token.midiVoicing[1],
+        token.midiVoicing[2] + 12,
+        token.midiVoicing[3],
+      ],
       allowedPitchClasses: ['D', 'E', 'F', 'G', 'A', 'B', 'C'],
       expectedTimeMs: 1000,
       submittedAtMs: 1080,

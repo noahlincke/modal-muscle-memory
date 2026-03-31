@@ -102,7 +102,7 @@ describe('roman spelling', () => {
 
     [dmaj7, bm7, em7, a7].forEach((token) => {
       expect(token.midiVoicing).toEqual([...token.midiVoicing].sort((a, b) => a - b));
-      expect(token.midiVoicing[token.midiVoicing.length - 1] - token.midiVoicing[0]).toBeLessThanOrEqual(14);
+      expect(token.midiVoicing[token.midiVoicing.length - 1] - token.midiVoicing[0]).toBeLessThanOrEqual(12);
     });
   });
 
@@ -116,6 +116,22 @@ describe('roman spelling', () => {
       maxVoiceMotionSemitones: 8,
     });
 
-    expect(token.midiVoicing[token.midiVoicing.length - 1] - token.midiVoicing[0]).toBeLessThanOrEqual(14);
+    expect(token.midiVoicing[token.midiVoicing.length - 1] - token.midiVoicing[0]).toBeLessThanOrEqual(12);
+  });
+
+  it('can place aeolian iiø shell voicings into a higher treble register', () => {
+    const token = buildChordToken({
+      tonic: 'Bb',
+      lane: 'aeolian',
+      roman: 'iiø',
+      voicingFamily: 'shell_137',
+      midiRange: { min: 60, max: 84 },
+      maxVoiceMotionSemitones: 8,
+      preferredCenterMidi: 72,
+    });
+
+    expect(token.symbol).toBe('Cm7b5');
+    expect(token.midiVoicing[0]).toBe(72);
+    expect(token.midiVoicing).toEqual([72, 75, 82]);
   });
 });

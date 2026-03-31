@@ -11,6 +11,7 @@ interface PianoViewProps {
   minMidi: number;
   maxMidi: number;
   targetNotes: number[];
+  flashcardAcceptedPitchClasses?: string[];
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
   currentScaleGuideLabels: Record<string, string>;
@@ -193,6 +194,7 @@ export function PianoView({
   minMidi,
   maxMidi,
   targetNotes,
+  flashcardAcceptedPitchClasses = [],
   chordTonePitchClasses,
   currentScalePitchClasses,
   currentScaleGuideLabels,
@@ -212,6 +214,7 @@ export function PianoView({
   }, [minMidi, maxMidi]);
 
   const targetSet = new Set([...targetNotes].slice(0, 4).sort((a, b) => a - b));
+  const flashcardAcceptedSet = useMemo(() => new Set(flashcardAcceptedPitchClasses), [flashcardAcceptedPitchClasses]);
   const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
   const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
   const allowedImprovisationSet = new Set([
@@ -308,6 +311,9 @@ export function PianoView({
     if (!active) return '';
     if (mode === 'guided') {
       return targetSet.has(midi) ? 'is-hit-correct' : 'is-hit-wrong';
+    }
+    if (mode === 'chord_flashcards') {
+      return flashcardAcceptedSet.has(midiToPitchClass(midi)) ? 'is-hit-correct' : 'is-hit-wrong';
     }
     return allowedImprovisationSet.has(midiToPitchClass(midi)) ? 'is-hit-correct' : 'is-hit-wrong';
   }

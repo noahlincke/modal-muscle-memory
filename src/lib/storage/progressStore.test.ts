@@ -11,6 +11,15 @@ describe('progressStore', () => {
     const progress = createDefaultProgressState();
 
     expect(progress.exerciseConfig.rhythm).toEqual(['block_whole', 'halves']);
+    expect(progress.exerciseConfig.flashcardFlowMode).toBe('mixed_recall');
+  });
+
+  it('defaults treble register settings to the higher right-hand range', () => {
+    const progress = createDefaultProgressState();
+
+    expect(progress.settings.staffClef).toBe('treble');
+    expect(progress.settings.registerMin).toBe(60);
+    expect(progress.settings.registerMax).toBe(84);
   });
 
   it('defaults missing saved rhythm settings to whole and half notes', () => {
@@ -28,6 +37,25 @@ describe('progressStore', () => {
     const loaded = loadProgressState();
 
     expect(loaded.exerciseConfig.rhythm).toEqual(['block_whole', 'halves']);
+  });
+
+  it('re-aligns saved register settings to the active clef defaults on load', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        settings: {
+          staffClef: 'treble',
+          registerMin: 48,
+          registerMax: 72,
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.settings.staffClef).toBe('treble');
+    expect(loaded.settings.registerMin).toBe(60);
+    expect(loaded.settings.registerMax).toBe(84);
   });
 
   it('persists and reloads progress', () => {
@@ -278,6 +306,27 @@ describe('progressStore', () => {
 
     expect(loaded.unlocksByLane.ionian.voicings).toEqual(['guide_tone_37', 'guide_tone_73', 'shell_137', 'closed_7th']);
     expect(loaded.exerciseConfig.selectedVoicings).toEqual(['guide_tone_37', 'shell_137', 'rootless_379', 'six_nine']);
+  });
+
+  it('normalizes saved flashcard mode and flow values', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        exerciseConfig: {
+          mode: 'chord_flashcards',
+          curriculumPresetId: 'major_foundations',
+          lane: 'ionian',
+          flashcardFlowMode: 'targeting_improvement',
+          selectedVoicings: ['closed_7th', 'inversion_1', 'inversion_2'],
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.exerciseConfig.mode).toBe('chord_flashcards');
+    expect(loaded.exerciseConfig.flashcardFlowMode).toBe('targeting_improvement');
+    expect(loaded.exerciseConfig.selectedVoicings).toEqual(['closed_7th', 'inversion_1', 'inversion_2']);
   });
 
   it('merges adjacent phrase completions into a single practice block', () => {

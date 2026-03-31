@@ -15,6 +15,22 @@ function containsAllNotes(playedNotes: number[], requiredNotes: number[]): boole
   return requiredNotes.every((note) => played.has(note));
 }
 
+function containsShiftedVoicing(playedNotes: number[], targetVoicing: number[]): boolean {
+  if (playedNotes.length === 0 || targetVoicing.length === 0) {
+    return false;
+  }
+
+  for (let octaveShift = -8; octaveShift <= 8; octaveShift += 1) {
+    const shiftSemitones = octaveShift * 12;
+    const shiftedVoicing = targetVoicing.map((note) => note + shiftSemitones);
+    if (containsAllNotes(playedNotes, shiftedVoicing)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function timingBucket(deltaMs: number, earlyMs: number, lateMs: number): EvaluationResult['timingBucket'] {
   if (deltaMs < -earlyMs) return 'early';
   if (deltaMs > lateMs) return 'late';
@@ -33,7 +49,7 @@ export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): 
   const playedPitchClasses = unique(input.playedNotes.map((note) => midiToPitchClass(note)));
   const required = unique(input.targetToken.requiredPitchClasses);
   const allowed = new Set(unique([...required, ...input.allowedPitchClasses]));
-  const containsTargetVoicing = containsAllNotes(input.playedNotes, input.targetToken.midiVoicing);
+  const containsTargetVoicing = containsShiftedVoicing(input.playedNotes, input.targetToken.midiVoicing);
 
   const matchedRequired = required.filter((pitchClass) => playedPitchClasses.includes(pitchClass));
   const missingRequired = required.filter((pitchClass) => !playedPitchClasses.includes(pitchClass));
@@ -56,7 +72,7 @@ export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): 
   if (!containsTargetVoicing) {
     errors.push({
       code: 'wrong_target_notes',
-      message: 'Include the exact notated voicing to advance.',
+      message: 'Include the exact notated chord shape at a single octave transposition to advance.',
     });
   }
   if (outsideAllowed.length > 0) {

@@ -1,4 +1,4 @@
-import type { EventAttemptInput, EvaluationResult, ScoringError } from '../../types/music';
+import type { ChordToken, EventAttemptInput, EvaluationResult, ScoringError } from '../../types/music';
 import { midiToPitchClass } from '../theory/noteUtils';
 
 const DEFAULT_TOLERANCES = {
@@ -115,5 +115,57 @@ export function evaluateAttempt(input: EventAttemptInput): EvaluationResult {
     latencyMs: Math.abs(deltaMs),
     matchedRequired: matchedRequired.length,
     errors,
+  };
+}
+
+interface FlashcardAttemptInput extends Omit<EventAttemptInput, 'targetToken'> {
+  acceptableTokens: ChordToken[];
+}
+
+function betterFlashcardResult(candidate: EvaluationResult, current: EvaluationResult | null): boolean {
+  if (!current) {
+    return true;
+  }
+
+  if (candidate.success !== current.success) {
+    return candidate.success;
+  }
+
+  if (candidate.accuracy !== current.accuracy) {
+    return candidate.accuracy > current.accuracy;
+  }
+
+  if (candidate.errors.length !== current.errors.length) {
+    return candidate.errors.length < current.errors.length;
+  }
+
+  return candidate.latencyMs < current.latencyMs;
+}
+
+export function evaluateFlashcardAttempt(input: FlashcardAttemptInput): EvaluationResult {
+  let bestResult: EvaluationResult | null = null;
+
+  input.acceptableTokens.forEach((targetToken) => {
+    const candidate = evaluateAttempt({
+      ...input,
+      targetToken,
+    });
+
+    if (betterFlashcardResult(candidate, bestResult)) {
+      bestResult = candidate;
+    }
+  });
+
+  return bestResult ?? {
+    success: false,
+    timingDeltaMs: 0,
+    timingBucket: 'on_time',
+    accuracy: 0,
+    latencyMs: 0,
+    matchedRequired: 0,
+    errors: [{
+      code: 'wrong_target_notes',
+      message: 'No accepted flashcard voicings are available for this chord.',
+    }],
   };
 }

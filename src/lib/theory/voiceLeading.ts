@@ -6,6 +6,7 @@ interface VoiceLeadingInput {
   prevVoicing?: number[];
   maxMotionSemitones: number;
   maxSpanSemitones?: number;
+  preferredCenterMidi?: number;
 }
 
 function nearestCandidate(
@@ -81,8 +82,9 @@ export function solveVoiceLeading({
   prevVoicing,
   maxMotionSemitones,
   maxSpanSemitones,
+  preferredCenterMidi,
 }: VoiceLeadingInput): number[] {
-  const center = (midiRange.min + midiRange.max) / 2;
+  const center = preferredCenterMidi ?? ((midiRange.min + midiRange.max) / 2);
   let last = midiRange.min - 1;
   const chosen: number[] = [];
 

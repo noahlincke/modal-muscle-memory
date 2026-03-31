@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildChordToken } from '../theory/chordToken';
-import { evaluateAttempt } from './evaluator';
+import { evaluateAttempt, evaluateFlashcardAttempt } from './evaluator';
 
 const token = buildChordToken({
   tonic: 'C',
@@ -61,5 +61,35 @@ describe('evaluateAttempt', () => {
 
     expect(early.timingBucket).toBe('early');
     expect(late.timingBucket).toBe('late');
+  });
+
+  it('accepts any matching selected flashcard voicing family at any octave', () => {
+    const closed = buildChordToken({
+      tonic: 'C',
+      lane: 'ionian',
+      roman: 'Imaj7',
+      voicingFamily: 'closed_7th',
+      midiRange: { min: 48, max: 72 },
+      maxVoiceMotionSemitones: 8,
+    });
+    const inversion = buildChordToken({
+      tonic: 'C',
+      lane: 'ionian',
+      roman: 'Imaj7',
+      voicingFamily: 'inversion_1',
+      midiRange: { min: 48, max: 72 },
+      maxVoiceMotionSemitones: 8,
+    });
+
+    const result = evaluateFlashcardAttempt({
+      acceptableTokens: [closed, inversion],
+      playedNotes: inversion.midiVoicing.map((note) => note + 12),
+      expectedTimeMs: 1000,
+      submittedAtMs: 1000,
+      scoringMode: 'standard',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 });
