@@ -127,6 +127,7 @@ describe('phraseGenerator', () => {
     expect(bassPredominant.symbol).toBe('Cm7');
     expect(treblePredominant.midiVoicing[0] - bassPredominant.midiVoicing[0]).toBeGreaterThanOrEqual(12);
     expect(treblePredominant.midiVoicing[0]).toBeGreaterThanOrEqual(72);
+    expect(bassPredominant.midiVoicing[0]).toBeGreaterThanOrEqual(36);
     expect(treblePredominant.midiVoicing[treblePredominant.midiVoicing.length - 1] - treblePredominant.midiVoicing[0]).toBeLessThanOrEqual(12);
     expect(bassPredominant.midiVoicing[bassPredominant.midiVoicing.length - 1] - bassPredominant.midiVoicing[0]).toBeLessThanOrEqual(12);
   });

@@ -7,8 +7,10 @@ import {
   deriveFamiliesForContentBlocks,
   getCurriculumPreset,
   KEY_SET_OPTIONS,
+  SCALE_FAMILY_OPTIONS,
 } from './content/curriculum';
 import { normalizeIncludedKeyRoots, nextRootOnCircle, resolveIncludedKeyRoots, rootsForKeySet } from './content/keys';
+import { getScaleOption } from './content/scales';
 import { PracticeLayout } from './components/PracticeLayout';
 import { PracticeSettingsDrawer } from './components/PracticeSettingsDrawer';
 import { ProgressScreen } from './components/ProgressScreen';
@@ -26,12 +28,14 @@ import {
   listPotentialPhraseVariants,
   playableProgressionIds,
 } from './lib/engine/phraseGenerator';
+import { generateScalePrompt, listPlayableScaleTargets } from './lib/engine/scalePromptGenerator';
 import { applyMasteryUpdate } from './lib/engine/mastery';
 import { applyUnlockDecision } from './lib/engine/unlocks';
 import { createMidiFallbackState, MidiAccessController, type MidiConnectionState } from './lib/midi/midiAccess';
 import { ChordCapture } from './lib/midi/chordCapture';
 import { carryoverNotesAfterAdvance, hasAcceptedNotesStillHeld } from './lib/midi/chordAdvance';
 import type { ParsedMidiMessage } from './lib/midi/midiParser';
+import { ScaleCapture } from './lib/midi/scaleCapture';
 import {
   createSyntheticNoteMessage,
   defaultQwertyOctaveShiftForClef,
@@ -58,7 +62,7 @@ import {
 } from './lib/theory/scaleMap';
 import { progressionSubtitle } from './lib/progressionLabels';
 import { resolveRomanToChord } from './lib/theory/roman';
-import type { EvaluationResult, Phrase, PhraseEvent, VoicingFamily } from './types/music';
+import type { EvaluationResult, Phrase, PhraseEvent, ScaleId, ScalePrompt, VoicingFamily } from './types/music';
 import type { AttemptRecord, ProgressState } from './types/progress';
 
 type Screen = 'practice' | 'progress';
@@ -513,6 +517,14 @@ export default function App() {
 
   const [phrase, setPhrase] = useState<Phrase | null>(null);
   const phraseRef = useRef<Phrase | null>(null);
+  const [scalePromptSeed, setScalePromptSeed] = useState(0);
+  const [scalePromptOverrides, setScalePromptOverrides] = useState<{
+    scaleId?: ScaleId;
+    tonic?: string;
+  }>({});
+  const [completedScaleNoteIndices, setCompletedScaleNoteIndices] = useState<Set<number>>(new Set());
+  const [currentScaleNoteIndex, setCurrentScaleNoteIndex] = useState(0);
+  const currentScaleNoteIndexRef = useRef(0);
   const [currentEventIndex, setCurrentEventIndex] = useState(0);
   const currentEventIndexRef = useRef(0);
   const [completedEventIds, setCompletedEventIds] = useState<Set<string>>(new Set());
@@ -535,6 +547,7 @@ export default function App() {
   const metronomeRef = useRef<Metronome>(new Metronome());
   const previewRef = useRef<PreviewPlayback>(new PreviewPlayback());
   const captureRef = useRef<ChordCapture>(new ChordCapture({ simultaneityWindowMs: 90 }));
+  const scaleCaptureRef = useRef<ScaleCapture>(new ScaleCapture());
   const qwertyOctaveShiftRef = useRef(defaultQwertyOctaveShiftForClef(progress.settings.staffClef));
   const qwertyPressedNotesRef = useRef<Map<string, number>>(new Map());
   const phraseStartAtMsRef = useRef(0);
@@ -547,6 +560,7 @@ export default function App() {
   const suppressCarryoverDisplayRef = useRef(false);
   const previewRequestIdRef = useRef(0);
   const selectionLocksRef = useRef<SelectionLocks>({ exercise: false, key: false });
+  const scaleAdvanceTimerRef = useRef<number | null>(null);
 
   const activeCurriculumPreset = useMemo(
     () => {
@@ -558,8 +572,12 @@ export default function App() {
 
   const potentialPhraseVariants = useMemo(() => listPotentialPhraseVariants(progress), [progress]);
   const potentialProgressionCount = useMemo(() => countPotentialProgressions(progress), [progress]);
+  const playableScaleTargetCount = useMemo(
+    () => listPlayableScaleTargets(progress.exerciseConfig).length,
+    [progress.exerciseConfig],
+  );
   const inputMode = midiState.ready ? 'midi' : 'qwerty';
-  const computerKeyboardAudioEnabled = inputMode === 'qwerty' || progress.settings.enableComputerKeyboardAudio;
+  const computerKeyboardAudioEnabled = progress.settings.enableComputerKeyboardAudio;
   const practiceCountsTowardProgress = progress.settings.practiceTrackingMode === 'test';
 
   const deckMasteryPct = useMemo(() => {
@@ -575,6 +593,12 @@ export default function App() {
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  useEffect(() => () => {
+    if (scaleAdvanceTimerRef.current !== null) {
+      window.clearTimeout(scaleAdvanceTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     selectionLocksRef.current = selectionLocks;
@@ -832,11 +856,18 @@ export default function App() {
 
   const resetPracticeSurface = useCallback((nextPhrase: Phrase | null) => {
     setPhrase(nextPhrase);
+    setCompletedScaleNoteIndices(new Set());
+    currentScaleNoteIndexRef.current = 0;
+    setCurrentScaleNoteIndex(0);
     updateCurrentEventIndex(0);
     setCompletedEventIds(new Set());
     setLatestEvaluation(null);
     setFlashcardScaffoldingVisible(false);
-    setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+    setMidiNotes(new Set(
+      progressRef.current.exerciseConfig.mode === 'scale'
+        ? scaleCaptureRef.current.activeNoteNumbers
+        : captureRef.current.activeNoteNumbers,
+    ));
     metronomeRef.current.stop();
     setIsRunning(false);
     isRunningRef.current = false;
@@ -847,10 +878,56 @@ export default function App() {
     phraseAttemptHistoryRef.current = [];
     pendingAdvanceRef.current = null;
     captureRef.current.clearRecent();
+    scaleCaptureRef.current.clear();
   }, [updateCurrentEventIndex]);
 
+  const scalePrompt = useMemo<ScalePrompt | null>(() => {
+    if (progress.exerciseConfig.mode !== 'scale') {
+      return null;
+    }
+
+    try {
+      return generateScalePrompt({
+        config: progress.exerciseConfig,
+        progress,
+        promptNonce: scalePromptSeed,
+        scaleIdOverride: scalePromptOverrides.scaleId,
+        tonicOverride: scalePromptOverrides.tonic,
+      });
+    } catch (error) {
+      console.error('Unable to generate scale prompt.', error);
+      return null;
+    }
+  }, [
+    progress,
+    progress.exerciseConfig,
+    progress.settings.staffClef,
+    progress.settings.registerMin,
+    progress.settings.registerMax,
+    scalePromptOverrides,
+    scalePromptSeed,
+  ]);
+
+  useEffect(() => {
+    currentScaleNoteIndexRef.current = 0;
+    setCompletedScaleNoteIndices(new Set());
+    setCurrentScaleNoteIndex(0);
+  }, [scalePrompt?.id]);
+
+  const regenerateScalePrompt = useCallback((overrides: {
+    scaleId?: ScaleId;
+    tonic?: string;
+  }) => {
+    setScalePromptOverrides(overrides);
+    setScalePromptSeed((current) => current + 1);
+  }, []);
+
   const syncVisibleMidiNotes = useCallback(() => {
-    setMidiNotes(new Set(captureRef.current.activeNoteNumbers));
+    setMidiNotes(new Set(
+      progressRef.current.exerciseConfig.mode === 'scale'
+        ? scaleCaptureRef.current.activeNoteNumbers
+        : captureRef.current.activeNoteNumbers,
+    ));
   }, []);
 
   const reconcileCarryoverDisplay = useCallback(() => {
@@ -906,6 +983,16 @@ export default function App() {
   }, []);
 
   const generateNextPhrase = useCallback((state: ProgressState) => {
+    if (state.exerciseConfig.mode === 'scale') {
+      setKeyboardTargetOverrideNotes(null);
+      resetPracticeSurface(null);
+      regenerateScalePrompt({
+        scaleId: selectionLocksRef.current.exercise ? scalePrompt?.scaleId : undefined,
+        tonic: selectionLocksRef.current.key ? scalePrompt?.tonic : undefined,
+      });
+      return;
+    }
+
     if (playableProgressionIds(state.exerciseConfig, state).length === 0) {
       setKeyboardTargetOverrideNotes(null);
       resetPracticeSurface(null);
@@ -954,7 +1041,7 @@ export default function App() {
       return;
     }
     resetPracticeSurface(nextPhrase);
-  }, [midiState.ready, resetPracticeSurface]);
+  }, [midiState.ready, regenerateScalePrompt, resetPracticeSurface, scalePrompt]);
 
   const generateSelectedPhrase = useCallback((
     config: ProgressState['exerciseConfig'],
@@ -964,6 +1051,16 @@ export default function App() {
       voicingFamilyOverride?: VoicingFamily;
     } = {},
   ) => {
+    if (config.mode === 'scale') {
+      setKeyboardTargetOverrideNotes(null);
+      resetPracticeSurface(null);
+      regenerateScalePrompt({
+        scaleId: options.progressionOverrideId as ScaleId | undefined,
+        tonic: options.tonicOverride,
+      });
+      return;
+    }
+
     const useKeyboardFriendlyRange = !midiState.ready;
 
     carryoverNotesRef.current = new Set(captureRef.current.activeNoteNumbers);
@@ -991,9 +1088,34 @@ export default function App() {
       console.error('Unable to generate selected phrase.', error);
       resetPracticeSurface(null);
     }
-  }, [midiState.ready, resetPracticeSurface]);
+  }, [midiState.ready, regenerateScalePrompt, resetPracticeSurface]);
 
   const stepCurrentKey = useCallback((direction: 'clockwise' | 'counterclockwise') => {
+    if (progressRef.current.exerciseConfig.mode === 'scale') {
+      if (!scalePrompt) {
+        return;
+      }
+
+      const allowedRoots = resolveIncludedKeyRoots(
+        progressRef.current.exerciseConfig.keySet,
+        progressRef.current.exerciseConfig.includedKeyRoots,
+      );
+      if (allowedRoots.length <= 1) {
+        return;
+      }
+
+      const nextRoot = nextRootOnCircle(scalePrompt.tonic, allowedRoots, direction);
+      if (!nextRoot || nextRoot === scalePrompt.tonic) {
+        return;
+      }
+
+      generateSelectedPhrase(progressRef.current.exerciseConfig, {
+        tonicOverride: nextRoot,
+        progressionOverrideId: scalePrompt.scaleId,
+      });
+      return;
+    }
+
     const workingPhrase = phraseRef.current;
     if (!workingPhrase) {
       return;
@@ -1020,9 +1142,39 @@ export default function App() {
       progressionOverrideId: workingPhrase.progressionId,
       voicingFamilyOverride: firstToken?.voicingFamily,
     });
-  }, [generateSelectedPhrase]);
+  }, [generateSelectedPhrase, scalePrompt]);
 
   const stepCurrentExercise = useCallback((direction: 'forward' | 'backward') => {
+    if (progressRef.current.exerciseConfig.mode === 'scale') {
+      if (!scalePrompt) {
+        return;
+      }
+
+      const scaleIds = [...new Set(
+        listPlayableScaleTargets(progressRef.current.exerciseConfig)
+          .filter((target) => target.tonic === scalePrompt.tonic)
+          .map((target) => target.scaleId),
+      )];
+      if (scaleIds.length <= 1) {
+        return;
+      }
+
+      const currentIndex = scaleIds.indexOf(scalePrompt.scaleId);
+      const directionOffset = direction === 'forward' ? 1 : -1;
+      const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = (baseIndex + directionOffset + scaleIds.length) % scaleIds.length;
+      const nextScaleId = scaleIds[nextIndex];
+      if (!nextScaleId || nextScaleId === scalePrompt.scaleId) {
+        return;
+      }
+
+      generateSelectedPhrase(progressRef.current.exerciseConfig, {
+        tonicOverride: scalePrompt.tonic,
+        progressionOverrideId: nextScaleId,
+      });
+      return;
+    }
+
     const workingPhrase = phraseRef.current;
     if (!workingPhrase) {
       return;
@@ -1050,9 +1202,21 @@ export default function App() {
       progressionOverrideId: nextProgressionId,
       voicingFamilyOverride: firstToken?.voicingFamily,
     });
-  }, [generateSelectedPhrase]);
+  }, [generateSelectedPhrase, scalePrompt]);
 
   const selectCurrentExercise = useCallback((progressionId: string) => {
+    if (progressRef.current.exerciseConfig.mode === 'scale') {
+      if (!scalePrompt || progressionId === scalePrompt.scaleId) {
+        return;
+      }
+
+      generateSelectedPhrase(progressRef.current.exerciseConfig, {
+        tonicOverride: scalePrompt.tonic,
+        progressionOverrideId: progressionId,
+      });
+      return;
+    }
+
     const workingPhrase = phraseRef.current;
     if (!workingPhrase || progressionId === workingPhrase.progressionId) {
       return;
@@ -1066,13 +1230,20 @@ export default function App() {
       progressionOverrideId: progressionId,
       voicingFamilyOverride: firstToken?.voicingFamily,
     });
-  }, [generateSelectedPhrase]);
+  }, [generateSelectedPhrase, scalePrompt]);
 
   useEffect(() => {
+    if (progress.exerciseConfig.mode === 'scale') {
+      if (!scalePrompt && playableScaleTargetCount > 0) {
+        generateNextPhrase(progressRef.current);
+      }
+      return;
+    }
+
     if (!phrase && potentialProgressionCount > 0) {
       generateNextPhrase(progressRef.current);
     }
-  }, [phrase, generateNextPhrase, potentialProgressionCount]);
+  }, [phrase, scalePrompt, generateNextPhrase, playableScaleTargetCount, potentialProgressionCount, progress.exerciseConfig.mode]);
 
   const finishPhrase = useCallback((workingProgress: ProgressState, targetPhrase: Phrase) => {
     const attempts = phraseAttemptHistoryRef.current;
@@ -1484,14 +1655,59 @@ export default function App() {
       }
     }
 
-    const submission = captureRef.current.ingest(
-      message,
-      pendingAdvanceRef.current ? [] : currentRequiredPitchClasses(),
-    );
-    reconcileCarryoverDisplay();
+    const isScaleMode = progressRef.current.exerciseConfig.mode === 'scale';
+    if (isScaleMode) {
+      scaleCaptureRef.current.ingest(message);
+    }
+    const submission = isScaleMode
+      ? null
+      : captureRef.current.ingest(
+        message,
+        pendingAdvanceRef.current ? [] : currentRequiredPitchClasses(),
+      );
+    if (!isScaleMode) {
+      reconcileCarryoverDisplay();
+    }
     syncVisibleMidiNotes();
 
     if (screen !== 'practice') {
+      return;
+    }
+
+    if (isScaleMode) {
+      if (!scalePrompt || message.type !== 'note_on') {
+        return;
+      }
+
+      const expectedIndex = currentScaleNoteIndexRef.current;
+      const expectedNote = scalePrompt.noteSequence[expectedIndex];
+      if (!expectedNote) {
+        return;
+      }
+
+      if (message.pitchClass !== midiToPitchClass(expectedNote.midi)) {
+        setStreak(0);
+        return;
+      }
+
+      const nextIndex = expectedIndex + 1;
+      currentScaleNoteIndexRef.current = nextIndex;
+      setCompletedScaleNoteIndices((current) => {
+        const next = new Set(current);
+        next.add(expectedIndex);
+        return next;
+      });
+      setCurrentScaleNoteIndex(nextIndex);
+      setStreak((value) => value + 1);
+
+      if (nextIndex >= scalePrompt.noteSequence.length) {
+        if (scaleAdvanceTimerRef.current !== null) {
+          window.clearTimeout(scaleAdvanceTimerRef.current);
+        }
+        scaleAdvanceTimerRef.current = window.setTimeout(() => {
+          generateNextPhrase(progressRef.current);
+        }, 260);
+      }
       return;
     }
 
@@ -1512,7 +1728,17 @@ export default function App() {
     if (readySubmission) {
       submitAttempt(readySubmission.notes, readySubmission.timestamp, readySubmission.reason);
     }
-  }, [computerKeyboardAudioEnabled, screen, commitPendingAdvanceIfReady, currentRequiredPitchClasses, reconcileCarryoverDisplay, submitAttempt, syncVisibleMidiNotes]);
+  }, [
+    computerKeyboardAudioEnabled,
+    generateNextPhrase,
+    screen,
+    commitPendingAdvanceIfReady,
+    currentRequiredPitchClasses,
+    reconcileCarryoverDisplay,
+    scalePrompt,
+    submitAttempt,
+    syncVisibleMidiNotes,
+  ]);
 
   const releaseAllQwertyNotes = useCallback(() => {
     if (qwertyPressedNotesRef.current.size === 0) {
@@ -1680,14 +1906,20 @@ export default function App() {
   }, [commitProgress]);
 
   const playReference = useCallback(async () => {
-    if (!phrase) {
+    if (!phrase && !scalePrompt) {
       return;
     }
 
     const requestId = ++previewRequestIdRef.current;
     const shouldResumeMetronome = isRunningRef.current && progressRef.current.settings.metronomeEnabled;
     metronomeRef.current.stop();
-    await previewRef.current.playPhrase(phrase, { withMetronome: true });
+    if (scalePrompt) {
+      await previewRef.current.playScalePrompt(scalePrompt, {
+        tempo: progressRef.current.settings.tempo,
+      });
+    } else if (phrase) {
+      await previewRef.current.playPhrase(phrase, { withMetronome: true });
+    }
 
     if (previewRequestIdRef.current !== requestId) {
       return;
@@ -1698,7 +1930,7 @@ export default function App() {
         beatOffsetBeats: currentMetronomeBeatOffset(),
       });
     }
-  }, [currentMetronomeBeatOffset, phrase]);
+  }, [currentMetronomeBeatOffset, phrase, scalePrompt]);
 
   const toggleMetronome = useCallback(() => {
     const enabled = !progressRef.current.settings.metronomeEnabled;
@@ -1768,10 +2000,10 @@ export default function App() {
 
     commitProgress(next);
 
-    if (midiState.ready && !next.settings.enableComputerKeyboardAudio) {
+    if (!next.settings.enableComputerKeyboardAudio) {
       previewRef.current.stopInputNotes();
     }
-  }, [commitProgress, midiState.ready]);
+  }, [commitProgress]);
 
   const toggleScaleGuideLabelMode = useCallback(() => {
     const nextScaleGuideLabelMode = progressRef.current.settings.scaleGuideLabelMode === 'degrees'
@@ -2002,6 +2234,9 @@ export default function App() {
       flashcardFlowMode: mode === 'chord_flashcards'
         ? 'mixed_recall'
         : progressRef.current.exerciseConfig.flashcardFlowMode,
+      scaleFlowMode: mode === 'scale'
+        ? 'mixed_recall'
+        : progressRef.current.exerciseConfig.scaleFlowMode,
     }, false);
     const next: ProgressState = {
       ...progressRef.current,
@@ -2010,14 +2245,18 @@ export default function App() {
         ...progressRef.current.settings,
         practiceTrackingMode: desiredPracticeTrackingMode,
         scaleGuideLabelMode: desiredScaleGuideLabelMode,
-        metronomeEnabled: mode === 'chord_flashcards'
+        metronomeEnabled: mode === 'chord_flashcards' || mode === 'scale'
           ? false
           : (desiredPracticeTrackingMode === 'test'
             ? true
             : progressRef.current.settings.metronomeEnabled),
+        showKeyboardPanel: mode === 'scale'
+          ? false
+          : progressRef.current.settings.showKeyboardPanel,
       },
     };
 
+    setScalePromptOverrides({});
     unlockSelectionLocks();
     commitProgress(next);
     setStreak(0);
@@ -2027,7 +2266,7 @@ export default function App() {
       setPracticeTrackingFlashToken((current) => current + 1);
     }
 
-    if (desiredPracticeTrackingMode === 'test' && mode !== 'chord_flashcards' && isRunningRef.current) {
+    if (desiredPracticeTrackingMode === 'test' && mode !== 'chord_flashcards' && mode !== 'scale' && isRunningRef.current) {
       void metronomeRef.current.start(next.settings.tempo, {
         beatOffsetBeats: currentMetronomeBeatOffset(),
       });
@@ -2035,7 +2274,7 @@ export default function App() {
   }, [commitProgress, currentMetronomeBeatOffset, generateNextPhrase, unlockSelectionLocks]);
 
   const stepExerciseMode = useCallback((direction: 'forward' | 'backward') => {
-    const modes: ProgressState['exerciseConfig']['mode'][] = ['guided', 'improvisation', 'chord_flashcards'];
+    const modes: ProgressState['exerciseConfig']['mode'][] = ['guided', 'improvisation', 'chord_flashcards', 'scale'];
     const currentIndex = modes.indexOf(progressRef.current.exerciseConfig.mode);
     const nextMode = modes[cycleIndex(modes.length, currentIndex, direction)];
     if (!nextMode) {
@@ -2151,6 +2390,15 @@ export default function App() {
     commitExerciseConfig({
       ...progressRef.current.exerciseConfig,
       flashcardFlowMode,
+    });
+  }, [commitExerciseConfig]);
+
+  const selectScaleFlowMode = useCallback((
+    scaleFlowMode: ProgressState['exerciseConfig']['scaleFlowMode'],
+  ) => {
+    commitExerciseConfig({
+      ...progressRef.current.exerciseConfig,
+      scaleFlowMode,
     });
   }, [commitExerciseConfig]);
 
@@ -2320,11 +2568,39 @@ export default function App() {
     description: option.description,
     selected: progress.exerciseConfig.keySet === option.id,
   })), [progress.exerciseConfig.keySet]);
+  const currentScaleTonic = scalePrompt?.tonic ?? allowedRoots[0] ?? null;
+  const scaleExercisePickerItems = useMemo<ExercisePickerItem[]>(() => {
+    if (!currentScaleTonic) {
+      return [];
+    }
+
+    const familyLabelById = new Map(SCALE_FAMILY_OPTIONS.map((family) => [family.id, family.label]));
+    const scaleIds = [...new Set(
+      listPlayableScaleTargets(progress.exerciseConfig)
+        .filter((target) => target.tonic === currentScaleTonic)
+        .map((target) => target.scaleId),
+    )];
+
+    return scaleIds.map((scaleId) => {
+      const option = getScaleOption(scaleId);
+      return {
+        id: scaleId,
+        label: option.label,
+        subtitle: familyLabelById.get(option.familyId) ?? option.familyId,
+        masteryLabel: 'New',
+        detailLabel: `${currentScaleTonic} · ${progress.settings.staffClef === 'bass' ? 'LH' : 'RH'} · ${progress.exerciseConfig.scaleOctaveSpan} oct`,
+        mastered: false,
+      };
+    });
+  }, [currentScaleTonic, progress.exerciseConfig, progress.settings.staffClef]);
   const availableProgressionIds = useMemo(
     () => playableProgressionIds(progress.exerciseConfig, progress),
     [progress],
   );
-  const exercisePickerItems = useMemo<ExercisePickerItem[]>(() => {
+  const hasCompatiblePracticeMaterial = progress.exerciseConfig.mode === 'scale'
+    ? playableScaleTargetCount > 0
+    : potentialProgressionCount > 0;
+  const progressionExercisePickerItems = useMemo<ExercisePickerItem[]>(() => {
     const masteryById = new Map(
       buildProgressionMasterySummaries(progress).map((summary) => [summary.progression.id, summary]),
     );
@@ -2349,6 +2625,9 @@ export default function App() {
       return items;
     }, []);
   }, [availableProgressionIds, progress]);
+  const exercisePickerItems = progress.exerciseConfig.mode === 'scale'
+    ? scaleExercisePickerItems
+    : progressionExercisePickerItems;
 
   if (screen === 'progress') {
     return (
@@ -2373,10 +2652,13 @@ export default function App() {
         practiceTrackingMode={progress.settings.practiceTrackingMode}
         practiceTrackingFlashToken={practiceTrackingFlashToken}
         phrase={phrase}
-        hasCompatiblePhrases={potentialProgressionCount > 0}
+        scalePrompt={scalePrompt}
+        hasCompatiblePhrases={hasCompatiblePracticeMaterial}
         clef={progress.settings.staffClef}
         currentEventIndex={currentEventIndex}
         completedEventIds={completedEventIds}
+        completedScaleNoteIndices={completedScaleNoteIndices}
+        currentScaleNoteIndex={currentScaleNoteIndex}
         theme={theme}
         activeNotes={midiNotes}
         minMidi={keyboardRange.min}
@@ -2386,7 +2668,7 @@ export default function App() {
         latestEvaluation={latestEvaluation}
         midiState={midiState}
         inputMode={inputMode}
-        canStepKey={allowedRoots.length > 1 && Boolean(phrase)}
+        canStepKey={allowedRoots.length > 1 && Boolean(progress.exerciseConfig.mode === 'scale' ? scalePrompt : phrase)}
         qwertyOctaveShift={qwertyOctaveShift}
         tempo={progress.settings.tempo}
         keyboardTargetNotes={keyboardTargetNotes}
@@ -2424,7 +2706,7 @@ export default function App() {
         canStepMode={true}
         onStepModeBackward={() => stepExerciseMode('backward')}
         onStepModeForward={() => stepExerciseMode('forward')}
-        canStepExercise={availableProgressionIds.length > 1 && Boolean(phrase)}
+        canStepExercise={exercisePickerItems.length > 1 && Boolean(progress.exerciseConfig.mode === 'scale' ? scalePrompt : phrase)}
         exercisePickerItems={exercisePickerItems}
         currentKeySetLabel={KEY_SET_OPTIONS.find((option) => option.id === progress.exerciseConfig.keySet)?.label ?? 'Custom'}
         includedKeysLabel={formatIncludedKeysLabel(allowedRoots)}
@@ -2436,6 +2718,7 @@ export default function App() {
         guidedFlowMode={progress.exerciseConfig.guidedFlowMode}
         improvisationProgressionMode={progress.exerciseConfig.improvisationProgressionMode}
         flashcardFlowMode={progress.exerciseConfig.flashcardFlowMode}
+        scaleFlowMode={progress.exerciseConfig.scaleFlowMode}
         chainMovement={progress.exerciseConfig.chainMovement}
         onSelectExercise={selectCurrentExercise}
         onSelectCurrentKey={selectCurrentKey}
@@ -2448,6 +2731,7 @@ export default function App() {
         onSelectGuidedFlowMode={selectGuidedFlowMode}
         onSelectImprovisationProgressionMode={selectImprovisationProgressionMode}
         onSelectFlashcardFlowMode={selectFlashcardFlowMode}
+        onSelectScaleFlowMode={selectScaleFlowMode}
         onSetChainMovement={setChainMovement}
         onStepExerciseBackward={() => stepCurrentExercise('backward')}
         onStepExerciseForward={() => stepCurrentExercise('forward')}

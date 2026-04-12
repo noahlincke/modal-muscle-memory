@@ -12,6 +12,9 @@ describe('progressStore', () => {
 
     expect(progress.exerciseConfig.rhythm).toEqual(['block_whole', 'halves']);
     expect(progress.exerciseConfig.flashcardFlowMode).toBe('mixed_recall');
+    expect(progress.exerciseConfig.scaleFlowMode).toBe('mixed_recall');
+    expect(progress.exerciseConfig.scalePracticeDirection).toBe('up_down');
+    expect(progress.exerciseConfig.scaleOctaveSpan).toBe(1);
   });
 
   it('defaults treble register settings to the higher right-hand range', () => {
@@ -65,6 +68,9 @@ describe('progressStore', () => {
     progress.exerciseConfig.mode = 'improvisation';
     progress.exerciseConfig.guidedFlowMode = 'musical_chaining';
     progress.exerciseConfig.improvisationProgressionMode = 'chained';
+    progress.exerciseConfig.scaleFlowMode = 'targeting_improvement';
+    progress.exerciseConfig.scalePracticeDirection = 'descending';
+    progress.exerciseConfig.scaleOctaveSpan = 2;
     progress.exerciseConfig.improvisationAdvanceMode = 'footpedal_release';
     progress.exerciseConfig.chainMovement = 72;
     progress.settings.enableComputerKeyboardAudio = false;
@@ -85,6 +91,9 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.curriculumPresetId).toBe('minor_foundations');
     expect(loaded.exerciseConfig.guidedFlowMode).toBe('musical_chaining');
     expect(loaded.exerciseConfig.improvisationProgressionMode).toBe('chained');
+    expect(loaded.exerciseConfig.scaleFlowMode).toBe('targeting_improvement');
+    expect(loaded.exerciseConfig.scalePracticeDirection).toBe('descending');
+    expect(loaded.exerciseConfig.scaleOctaveSpan).toBe(2);
     expect(loaded.exerciseConfig.improvisationAdvanceMode).toBe('footpedal_release');
     expect(loaded.exerciseConfig.chainMovement).toBe(72);
     expect(loaded.exerciseConfig.voicingPracticeMode).toBe('auto');
@@ -106,6 +115,9 @@ describe('progressStore', () => {
           rhythm: ['all'],
           guidedFlowMode: 'musical_chaining',
           improvisationProgressionMode: 'chained',
+          scaleFlowMode: 'random',
+          scalePracticeDirection: 'ascending',
+          scaleOctaveSpan: 2,
           improvisationAdvanceMode: 'footpedal_release',
           chainMovement: 180,
         },
@@ -139,6 +151,9 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.curriculumPresetId).toBe('major_foundations');
     expect(loaded.exerciseConfig.guidedFlowMode).toBe('musical_chaining');
     expect(loaded.exerciseConfig.improvisationProgressionMode).toBe('chained');
+    expect(loaded.exerciseConfig.scaleFlowMode).toBe('random');
+    expect(loaded.exerciseConfig.scalePracticeDirection).toBe('ascending');
+    expect(loaded.exerciseConfig.scaleOctaveSpan).toBe(2);
     expect(loaded.exerciseConfig.improvisationAdvanceMode).toBe('footpedal_release');
     expect(loaded.exerciseConfig.chainMovement).toBe(100);
     expect(loaded.exerciseConfig.voicingPracticeMode).toBe('auto');
@@ -197,6 +212,28 @@ describe('progressStore', () => {
     ]);
     expect(loaded.exerciseConfig.keySet).toBe('max_2_accidentals');
     expect(loaded.exerciseConfig.includedKeyRoots).toEqual(['C', 'G', 'F', 'D', 'Bb']);
+  });
+
+  it('normalizes invalid saved scale practice settings back to scaffold defaults', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        exerciseConfig: {
+          mode: 'guided',
+          curriculumPresetId: 'major_foundations',
+          lane: 'ionian',
+          scaleFlowMode: 'not_a_flow',
+          scalePracticeDirection: 'sideways',
+          scaleOctaveSpan: 9,
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.exerciseConfig.scaleFlowMode).toBe('mixed_recall');
+    expect(loaded.exerciseConfig.scalePracticeDirection).toBe('up_down');
+    expect(loaded.exerciseConfig.scaleOctaveSpan).toBe(1);
   });
 
   it('preserves intentionally empty filter groups on reload', () => {

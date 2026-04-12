@@ -27,13 +27,17 @@ export type ContentBlockId =
   | 'functional_minor_extensions'
   | 'symmetric_color';
 
-export type ExerciseMode = 'guided' | 'improvisation' | 'chord_flashcards';
+export type ExerciseMode = 'guided' | 'improvisation' | 'chord_flashcards' | 'scale';
 export type VoicingPracticeMode = 'auto' | 'custom';
 export type GuidedFlowMode = 'random' | 'targeting_improvement' | 'musical_chaining';
 export type ImprovisationProgressionMode = 'random' | 'targeting_improvement' | 'chained';
 export type FlashcardFlowMode = 'random' | 'targeting_improvement' | 'mixed_recall';
+export type ScaleFlowMode = 'random' | 'targeting_improvement' | 'mixed_recall';
 export type ImprovisationAdvanceMode = 'immediate' | 'footpedal_release';
 export type CircleVisualizationMode = 'intervals' | 'chord_arrows' | 'hidden';
+export type ScalePracticeDirection = 'ascending' | 'descending' | 'up_down';
+export type ScalePracticeHand = 'lh' | 'rh';
+export type ScaleFingeringConfidence = 'canonical' | 'recommended';
 
 export type VoicingFamily =
   | 'triad_root'
@@ -140,6 +144,41 @@ export interface ScaleOption {
   familyId: ScaleFamilyId;
   intervalFormula: string[];
   qualityTags: string[];
+}
+
+export interface ScaleFingeringSequence {
+  hand: ScalePracticeHand;
+  direction: 'ascending' | 'descending';
+  fingers: number[];
+}
+
+export interface ScaleFingeringDefinition {
+  scaleId: ScaleId;
+  tonic: string;
+  confidence: ScaleFingeringConfidence;
+  octaveSpan: number;
+  sequences: ScaleFingeringSequence[];
+  sourceIds?: string[];
+}
+
+export interface ScalePromptNote {
+  midi: number;
+  spelling: string;
+  degreeLabel: string;
+  finger: number;
+}
+
+export interface ScalePrompt {
+  id: string;
+  scaleId: ScaleId;
+  tonic: string;
+  hand: ScalePracticeHand;
+  direction: ScalePracticeDirection;
+  octaveSpan: number;
+  clef: 'treble' | 'bass';
+  midiRange: { min: number; max: number };
+  noteSequence: ScalePromptNote[];
+  focusType: PhraseFocusType;
 }
 
 export interface ProgressionStep {

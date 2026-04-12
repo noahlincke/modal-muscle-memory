@@ -29,7 +29,7 @@ interface ProgressionSummary {
 
 interface PracticeBlock {
   id: string;
-  mode: 'guided' | 'improvisation' | 'chord_flashcards';
+  mode: 'guided' | 'improvisation' | 'chord_flashcards' | 'scale';
   curriculumPresetId: string | null;
   lane: string;
   startedAt: string;
@@ -118,7 +118,7 @@ function groupPracticeBlocks(sessionHistory: SessionRecord[]): PracticeBlock[] {
     const phraseCount = Math.max(1, session.phraseIds.length);
     const mode = session.mode === 'improvisation'
       ? 'improvisation'
-      : (session.mode === 'chord_flashcards' ? 'chord_flashcards' : 'guided');
+      : (session.mode === 'chord_flashcards' ? 'chord_flashcards' : (session.mode === 'scale' ? 'scale' : 'guided'));
     const curriculumPresetId = session.curriculumPresetId ?? null;
     const previous = blocks[blocks.length - 1];
     const gapMs = previous
@@ -210,7 +210,7 @@ function practiceBlockLabel(block: PracticeBlock): string {
     : null;
   const modeLabel = block.mode === 'improvisation'
     ? 'Improvisation'
-    : (block.mode === 'chord_flashcards' ? 'Chord Flashcards' : 'Guided');
+    : (block.mode === 'chord_flashcards' ? 'Chord Flashcards' : (block.mode === 'scale' ? 'Scale' : 'Guided'));
   return `${presetLabel ?? humanizeSnakeCase(block.lane)} · ${modeLabel}`;
 }
 

@@ -7,7 +7,7 @@ export interface MidiRange {
 
 const IDEAL_REGISTER_BY_CLEF: Record<StaffClef, MidiRange> = {
   treble: { min: 60, max: 84 },
-  bass: { min: 31, max: 55 },
+  bass: { min: 36, max: 60 },
 };
 
 function overlapRange(a: MidiRange, b: MidiRange): MidiRange | null {
@@ -33,7 +33,7 @@ export function preferredCenterForClef(
   midiRange: MidiRange,
 ): number {
   const comfortRange = overlapRange(midiRange, IDEAL_REGISTER_BY_CLEF[clef]) ?? midiRange;
-  const bias = clef === 'treble' ? 0.75 : 0.2;
+  const bias = clef === 'treble' ? 0.75 : 0.45;
   return comfortRange.min + ((comfortRange.max - comfortRange.min) * bias);
 }
 

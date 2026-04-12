@@ -362,7 +362,7 @@ export function PracticeSettingsDrawer({
         <section className="settings-section">
           <div className="settings-section-copy">
             <h3>Computer Keyboard</h3>
-            <p>Use the computer keyboard when MIDI is disconnected.</p>
+            <p>Use the computer keyboard when MIDI is disconnected. Audio follows the toggle below.</p>
           </div>
           <div className="settings-toggle-inline">
             <strong>Computer Audio</strong>
@@ -386,9 +386,9 @@ export function PracticeSettingsDrawer({
             </div>
           </div>
           {inputMode === 'qwerty' ? (
-            <p className="settings-meta">Computer audio is always on while MIDI is disconnected. This toggle sets what happens once MIDI reconnects.</p>
+            <p className="settings-meta">QWERTY note entry stays available while MIDI is disconnected. This toggle controls whether the browser plays those notes.</p>
           ) : (
-            <p className="settings-meta">This toggle controls computer audio while MIDI is connected. If MIDI disconnects, computer audio turns on automatically.</p>
+            <p className="settings-meta">This toggle controls whether the browser plays incoming notes.</p>
           )}
         </section>
 

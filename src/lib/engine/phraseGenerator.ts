@@ -118,6 +118,9 @@ function modeFlowId(config: ExerciseConfig): string {
   if (config.mode === 'improvisation') {
     return config.improvisationProgressionMode;
   }
+  if (config.mode === 'scale') {
+    return config.scaleFlowMode;
+  }
 
   return config.flashcardFlowMode;
 }

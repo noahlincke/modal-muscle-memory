@@ -23,7 +23,7 @@ import { registerForClef, type StaffClef } from '../theory/voicingPlacement';
 import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
@@ -71,13 +71,16 @@ function defaultExerciseConfig(): ExerciseConfig {
     guidedFlowMode: 'targeting_improvement',
     improvisationProgressionMode: 'chained',
     flashcardFlowMode: 'mixed_recall',
+    scaleFlowMode: 'mixed_recall',
+    scalePracticeDirection: 'up_down',
+    scaleOctaveSpan: 1,
     improvisationAdvanceMode: 'immediate',
     chainMovement: 35,
   }, 'major_foundations');
 }
 
 function normalizeExerciseMode(value: unknown): ExerciseMode {
-  if (value === 'improvisation' || value === 'chord_flashcards') {
+  if (value === 'improvisation' || value === 'chord_flashcards' || value === 'scale') {
     return value;
   }
 
@@ -90,6 +93,30 @@ function normalizeFlashcardFlowMode(value: unknown): ExerciseConfig['flashcardFl
   }
 
   return 'mixed_recall';
+}
+
+function normalizeScaleFlowMode(value: unknown): ExerciseConfig['scaleFlowMode'] {
+  if (value === 'random' || value === 'targeting_improvement') {
+    return value;
+  }
+
+  return 'mixed_recall';
+}
+
+function normalizeScalePracticeDirection(value: unknown): ExerciseConfig['scalePracticeDirection'] {
+  if (value === 'ascending' || value === 'descending') {
+    return value;
+  }
+
+  return 'up_down';
+}
+
+function normalizeScaleOctaveSpan(value: unknown): ExerciseConfig['scaleOctaveSpan'] {
+  if (value === 2) {
+    return 2;
+  }
+
+  return 1;
 }
 
 function normalizeImprovisationAdvanceMode(value: unknown): ExerciseConfig['improvisationAdvanceMode'] {
@@ -307,6 +334,9 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
       improvisationProgressionMode:
         raw.exerciseConfig?.improvisationProgressionMode ?? presetDefaults.improvisationProgressionMode,
       flashcardFlowMode: normalizeFlashcardFlowMode(raw.exerciseConfig?.flashcardFlowMode),
+      scaleFlowMode: normalizeScaleFlowMode(raw.exerciseConfig?.scaleFlowMode),
+      scalePracticeDirection: normalizeScalePracticeDirection(raw.exerciseConfig?.scalePracticeDirection),
+      scaleOctaveSpan: normalizeScaleOctaveSpan(raw.exerciseConfig?.scaleOctaveSpan),
       improvisationAdvanceMode: normalizeImprovisationAdvanceMode(raw.exerciseConfig?.improvisationAdvanceMode),
       chainMovement: normalizeChainMovement(raw.exerciseConfig?.chainMovement),
     },

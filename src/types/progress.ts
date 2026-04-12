@@ -1,4 +1,4 @@
-import type { CircleVisualizationMode, FlashcardFlowMode, ImprovisationAdvanceMode } from './music';
+import type { CircleVisualizationMode, FlashcardFlowMode, ImprovisationAdvanceMode, ScaleFlowMode } from './music';
 import type {
   ContentBlockId,
   CurriculumPresetId,
@@ -14,6 +14,7 @@ import type {
   RhythmSelection,
   ScoringMode,
   ScaleFamilyId,
+  ScalePracticeDirection,
   VoicingPracticeMode,
   VoicingFamily,
 } from './music';
@@ -33,6 +34,9 @@ export interface ExerciseConfig {
   guidedFlowMode: GuidedFlowMode;
   improvisationProgressionMode: ImprovisationProgressionMode;
   flashcardFlowMode: FlashcardFlowMode;
+  scaleFlowMode: ScaleFlowMode;
+  scalePracticeDirection: ScalePracticeDirection;
+  scaleOctaveSpan: number;
   improvisationAdvanceMode: ImprovisationAdvanceMode;
   chainMovement: number;
 }

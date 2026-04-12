@@ -1,5 +1,5 @@
 import { Midi } from 'tonal';
-import type { Phrase } from '../../types/music';
+import type { Phrase, ScalePrompt } from '../../types/music';
 import { loadTone } from './toneLoader';
 
 function createPracticeSynth(Tone: typeof import('tone')): import('tone').PolySynth<import('tone').Synth> {
@@ -132,6 +132,44 @@ export class PreviewPlayback {
     }
 
     const waitMs = Math.ceil(startDelayMs + totalBeats * secondsPerBeat * 1000 + 120);
+    await new Promise<void>((resolve) => {
+      this.pendingResolve = resolve;
+      this.completionTimeoutId = window.setTimeout(() => {
+        if (this.runId !== runId) {
+          resolve();
+          return;
+        }
+        this.finishRun(resolve);
+      }, waitMs);
+    });
+  }
+
+  async playScalePrompt(
+    prompt: ScalePrompt,
+    options: {
+      tempo?: number;
+    } = {},
+  ): Promise<void> {
+    await this.prepare();
+    this.stop();
+
+    const secondsPerBeat = 60 / (options.tempo ?? 96);
+    const noteDuration = Math.max(0.18, secondsPerBeat * 0.82);
+    const runId = this.runId;
+    const startDelayMs = 50;
+
+    prompt.noteSequence.forEach((note, index) => {
+      const noteName = Midi.midiToNoteName(note.midi, { sharps: true }) ?? 'C4';
+      const timeoutId = window.setTimeout(() => {
+        if (this.runId !== runId) {
+          return;
+        }
+        this.synth?.triggerAttackRelease(noteName, noteDuration, undefined, 0.45);
+      }, Math.max(0, Math.round(startDelayMs + index * secondsPerBeat * 1000)));
+      this.scheduledTimeoutIds.push(timeoutId);
+    });
+
+    const waitMs = Math.ceil(startDelayMs + prompt.noteSequence.length * secondsPerBeat * 1000 + 120);
     await new Promise<void>((resolve) => {
       this.pendingResolve = resolve;
       this.completionTimeoutId = window.setTimeout(() => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { keySignatureForRoot } from '../content/keys';
+import { getScaleOption } from '../content/scales';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { progressionSubtitle } from '../lib/progressionLabels';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
@@ -10,6 +11,7 @@ import type {
   ExerciseMode,
   KeySetId,
   Phrase,
+  ScalePrompt,
 } from '../types/music';
 import { CircleOfFifths } from './CircleOfFifths';
 import { NotationStrip } from './NotationStrip';
@@ -48,10 +50,13 @@ interface PracticeLayoutProps {
   practiceTrackingMode: 'test' | 'play';
   practiceTrackingFlashToken: number;
   phrase: Phrase | null;
+  scalePrompt?: ScalePrompt | null;
   hasCompatiblePhrases: boolean;
   clef: 'treble' | 'bass';
   currentEventIndex: number;
   completedEventIds: Set<string>;
+  completedScaleNoteIndices?: Set<number>;
+  currentScaleNoteIndex?: number;
   theme: 'light' | 'dark' | 'focus';
   activeNotes: Set<number>;
   minMidi: number;
@@ -103,6 +108,7 @@ interface PracticeLayoutProps {
   guidedFlowMode: 'random' | 'targeting_improvement' | 'musical_chaining';
   improvisationProgressionMode: 'random' | 'targeting_improvement' | 'chained';
   flashcardFlowMode: 'random' | 'targeting_improvement' | 'mixed_recall';
+  scaleFlowMode: 'random' | 'targeting_improvement' | 'mixed_recall';
   chainMovement: number;
   onSelectExercise: (progressionId: string) => void;
   onSelectCurrentKey: (root: string) => void;
@@ -115,6 +121,7 @@ interface PracticeLayoutProps {
   onSelectGuidedFlowMode: (mode: 'random' | 'targeting_improvement' | 'musical_chaining') => void;
   onSelectImprovisationProgressionMode: (mode: 'random' | 'targeting_improvement' | 'chained') => void;
   onSelectFlashcardFlowMode: (mode: 'random' | 'targeting_improvement' | 'mixed_recall') => void;
+  onSelectScaleFlowMode: (mode: 'random' | 'targeting_improvement' | 'mixed_recall') => void;
   onSetChainMovement: (chainMovement: number) => void;
   onStepExerciseBackward: () => void;
   onStepExerciseForward: () => void;
@@ -332,10 +339,13 @@ export function PracticeLayout({
   practiceTrackingMode,
   practiceTrackingFlashToken,
   phrase,
+  scalePrompt = null,
   hasCompatiblePhrases,
   clef,
   currentEventIndex,
   completedEventIds,
+  completedScaleNoteIndices = new Set<number>(),
+  currentScaleNoteIndex = 0,
   theme,
   activeNotes,
   minMidi,
@@ -387,6 +397,7 @@ export function PracticeLayout({
   guidedFlowMode,
   improvisationProgressionMode,
   flashcardFlowMode,
+  scaleFlowMode,
   chainMovement,
   onSelectExercise,
   onSelectCurrentKey,
@@ -399,6 +410,7 @@ export function PracticeLayout({
   onSelectGuidedFlowMode,
   onSelectImprovisationProgressionMode,
   onSelectFlashcardFlowMode,
+  onSelectScaleFlowMode,
   onSetChainMovement,
   onStepExerciseBackward,
   onStepExerciseForward,
@@ -413,24 +425,32 @@ export function PracticeLayout({
   onDismissWalkthrough,
 }: PracticeLayoutProps) {
   const practiceTrackingFlashSeenRef = useRef(practiceTrackingFlashToken);
+  const hasPrimaryPrompt = Boolean(phrase || scalePrompt);
   const currentEvent = phrase ? phrase.events[currentEventIndex] : null;
   const currentToken = currentEvent ? phrase?.tokensById[currentEvent.chordTokenId] ?? null : null;
-  const progressionLabel = phrase
-    ? phrase.progression.steps
-      .map((step) => step.roman)
-      .join('-')
-    : '—';
-  const progressionSubtitleLabel = phrase ? progressionSubtitle(phrase.progression.id) : null;
-  const tonicLabel = phrase?.tonic ?? '—';
+  const isScaleMode = exerciseMode === 'scale';
+  const progressionLabel = isScaleMode
+    ? (scalePrompt ? getScaleOption(scalePrompt.scaleId).label : '—')
+    : (phrase
+      ? phrase.progression.steps.map((step) => step.roman).join('-')
+      : '—');
+  const progressionSubtitleLabel = isScaleMode
+    ? (scalePrompt ? `${scalePrompt.hand.toUpperCase()} · ${scalePrompt.direction.replace('_', ' / ')}` : null)
+    : (phrase ? progressionSubtitle(phrase.progression.id) : null);
+  const tonicLabel = scalePrompt?.tonic ?? phrase?.tonic ?? '—';
 
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
   const chordLabel = chordStatusLabel(latestEvaluation);
-  const chordHighlightColor = intervalColorForTonicAndRoot(phrase?.tonic ?? null, currentToken?.pitchClasses[0] ?? null);
+  const chordHighlightColor = intervalColorForTonicAndRoot(
+    scalePrompt?.tonic ?? phrase?.tonic ?? null,
+    currentToken?.pitchClasses[0] ?? scalePrompt?.tonic ?? null,
+  );
   const modeLabel = exerciseMode === 'improvisation'
     ? 'Improvisation'
-    : (exerciseMode === 'chord_flashcards' ? 'Chord Flashcards' : 'Guided');
-  const showPerformanceStats = exerciseMode !== 'improvisation';
+    : (exerciseMode === 'chord_flashcards' ? 'Chord Flashcards' : (exerciseMode === 'scale' ? 'Scale' : 'Guided'));
+  const showPerformanceStats = exerciseMode !== 'improvisation' && exerciseMode !== 'scale';
   const isFlashcardMode = exerciseMode === 'chord_flashcards';
+  const isStandalonePromptMode = isFlashcardMode || isScaleMode;
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
   const [dismissedQwertyWarning, setDismissedQwertyWarning] = useState(false);
   const [isPracticeTrackingFlashing, setIsPracticeTrackingFlashing] = useState(false);
@@ -451,7 +471,7 @@ export function PracticeLayout({
     : (circleVisualizationMode === 'chord_arrows'
       ? 'Chord view shown. Click staff to hide the circle of fifths.'
       : 'Circle of fifths hidden. Click staff to show Circle view.');
-  const currentKeyDisplay = phrase?.tonic ?? availableKeyRoots[0] ?? null;
+  const currentKeyDisplay = scalePrompt?.tonic ?? phrase?.tonic ?? availableKeyRoots[0] ?? null;
   const exercisePickerOpen = openPicker === 'exercise';
   const keyPickerOpen = openPicker === 'key';
   const contentPickerOpen = openPicker === 'content';
@@ -492,10 +512,10 @@ export function PracticeLayout({
   }, [practiceTrackingFlashToken]);
 
   useEffect(() => {
-    if ((!phrase || exercisePickerItems.length === 0) && openPicker === 'exercise') {
+    if ((!hasPrimaryPrompt || exercisePickerItems.length === 0) && openPicker === 'exercise') {
       setOpenPicker(null);
     }
-  }, [exercisePickerItems.length, openPicker, phrase]);
+  }, [exercisePickerItems.length, hasPrimaryPrompt, openPicker]);
 
   useEffect(() => {
     if (walkthroughActive && openPicker) {
@@ -637,7 +657,7 @@ export function PracticeLayout({
             className="icon-button"
             aria-label="Reference playback"
             onClick={onPlayReference}
-            disabled={!phrase}
+            disabled={!hasPrimaryPrompt}
           >
             <PlayIcon />
           </button>
@@ -678,7 +698,7 @@ export function PracticeLayout({
                 type="button"
                 className={`hud-lock-button ${exerciseLocked ? 'is-locked' : ''}`.trim()}
                 onClick={onToggleExerciseLock}
-                disabled={!phrase}
+                disabled={!hasPrimaryPrompt}
                 aria-pressed={exerciseLocked}
                 aria-label={exerciseLocked ? 'Unlock current exercise' : 'Lock current exercise'}
                 title={exerciseLocked ? 'Exercise locked' : 'Lock current exercise'}
@@ -709,7 +729,7 @@ export function PracticeLayout({
                     }
                     setOpenPicker('exercise');
                   }}
-                  disabled={!phrase || exercisePickerItems.length === 0}
+                  disabled={!hasPrimaryPrompt || exercisePickerItems.length === 0}
                   aria-label="Choose current exercise"
                 >
                   <span>{progressionLabel}</span>
@@ -746,7 +766,7 @@ export function PracticeLayout({
                 type="button"
                 className={`hud-lock-button ${keyLocked ? 'is-locked' : ''}`.trim()}
                 onClick={onToggleKeyLock}
-                disabled={!phrase}
+                disabled={!hasPrimaryPrompt}
                 aria-pressed={keyLocked}
                 aria-label={keyLocked ? 'Unlock current key' : 'Lock current key'}
                 title={keyLocked ? 'Key locked' : 'Lock current key'}
@@ -777,7 +797,7 @@ export function PracticeLayout({
                   aria-label="Choose current key"
                 >
                   <span>{tonicLabel}</span>
-                  <KeySignatureStaff tonic={phrase?.tonic ?? null} />
+                  <KeySignatureStaff tonic={scalePrompt?.tonic ?? phrase?.tonic ?? null} />
                 </button>
                 {walkthroughStep === 'key' && walkthroughMessage ? (
                   <WalkthroughBubble
@@ -1073,15 +1093,25 @@ export function PracticeLayout({
                   >
                     Flashcards
                   </button>
+                  <button
+                    type="button"
+                    className={`practice-mode-toggle-option ${exerciseMode === 'scale' ? 'active' : ''}`.trim()}
+                    onClick={() => onSelectMode('scale')}
+                    aria-pressed={exerciseMode === 'scale'}
+                  >
+                    Scale
+                  </button>
                 </div>
-                <p className="settings-meta">Switch between guided drilling, scale-guided improvisation, and isolated chord recall.</p>
+                <p className="settings-meta">Switch between guided drilling, scale-guided improvisation, isolated chord recall, and standalone scale practice.</p>
               </section>
 
               <section className="settings-section">
                 <div className="settings-section-copy">
                   <h3>{exerciseMode === 'improvisation'
                     ? 'Improvisation Flow'
-                    : (exerciseMode === 'chord_flashcards' ? 'Flashcard Flow' : 'Guided Flow')}
+                    : (exerciseMode === 'chord_flashcards'
+                      ? 'Flashcard Flow'
+                      : (exerciseMode === 'scale' ? 'Scale Flow' : 'Guided Flow'))}
                   </h3>
                 </div>
                 <div
@@ -1089,7 +1119,9 @@ export function PracticeLayout({
                   role="tablist"
                   aria-label={exerciseMode === 'improvisation'
                     ? 'Improvisation flow'
-                    : (exerciseMode === 'chord_flashcards' ? 'Flashcard flow' : 'Guided flow')}
+                    : (exerciseMode === 'chord_flashcards'
+                      ? 'Flashcard flow'
+                      : (exerciseMode === 'scale' ? 'Scale flow' : 'Guided flow'))}
                 >
                   {exerciseMode === 'improvisation' ? (
                     <>
@@ -1139,6 +1171,30 @@ export function PracticeLayout({
                         Mixed Recall
                       </button>
                     </>
+                  ) : exerciseMode === 'scale' ? (
+                    <>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${scaleFlowMode === 'random' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectScaleFlowMode('random')}
+                      >
+                        Random
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${scaleFlowMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectScaleFlowMode('targeting_improvement')}
+                      >
+                        Improvement
+                      </button>
+                      <button
+                        type="button"
+                        className={`practice-mode-toggle-option ${scaleFlowMode === 'mixed_recall' ? 'active' : ''}`.trim()}
+                        onClick={() => onSelectScaleFlowMode('mixed_recall')}
+                      >
+                        Mixed Recall
+                      </button>
+                    </>
                   ) : (
                     <>
                       <button
@@ -1180,7 +1236,9 @@ export function PracticeLayout({
                     onChange={(event) => onSetChainMovement(Number(event.target.value))}
                     aria-label={exerciseMode === 'improvisation'
                       ? 'Improvisation flow motion'
-                      : (exerciseMode === 'chord_flashcards' ? 'Flashcard flow motion' : 'Guided flow motion')}
+                      : (exerciseMode === 'chord_flashcards'
+                        ? 'Flashcard flow motion'
+                        : (exerciseMode === 'scale' ? 'Scale flow motion' : 'Guided flow motion'))}
                   />
                   <div className="settings-range-labels" aria-hidden="true">
                     <span>Repetitive</span>
@@ -1217,15 +1275,15 @@ export function PracticeLayout({
 
       {walkthroughActive ? <div className="walkthrough-overlay" aria-hidden="true" /> : null}
 
-      <div className={`practice-workstack ${(circleVisualizationMode === 'hidden' || isFlashcardMode) ? 'is-circle-hidden' : ''}`.trim()}>
+      <div className={`practice-workstack ${(circleVisualizationMode === 'hidden' || isStandalonePromptMode) ? 'is-circle-hidden' : ''}`.trim()}>
         <div
-          className={`practice-notation-slot ${!isFlashcardMode ? 'is-circle-cycle-target' : ''}`.trim()}
-          role={!isFlashcardMode ? 'button' : undefined}
-          tabIndex={!isFlashcardMode ? 0 : undefined}
-          aria-label={!isFlashcardMode ? notationStripLabel : undefined}
-          title={!isFlashcardMode ? notationStripLabel : undefined}
-          onClick={!isFlashcardMode ? onToggleCircleVisualizationMode : undefined}
-          onKeyDown={!isFlashcardMode
+          className={`practice-notation-slot ${!isStandalonePromptMode ? 'is-circle-cycle-target' : ''}`.trim()}
+          role={!isStandalonePromptMode ? 'button' : undefined}
+          tabIndex={!isStandalonePromptMode ? 0 : undefined}
+          aria-label={!isStandalonePromptMode ? notationStripLabel : undefined}
+          title={!isStandalonePromptMode ? notationStripLabel : undefined}
+          onClick={!isStandalonePromptMode ? onToggleCircleVisualizationMode : undefined}
+          onKeyDown={!isStandalonePromptMode
             ? (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
@@ -1240,17 +1298,20 @@ export function PracticeLayout({
           {notationVisible ? (
             <NotationStrip
               phrase={phrase}
+              scalePrompt={scalePrompt}
               hasCompatiblePhrases={hasCompatiblePhrases}
               clef={clef}
               exerciseMode={exerciseMode}
               currentEventIndex={currentEventIndex}
               completedEventIds={completedEventIds}
+              completedScaleNoteIndices={completedScaleNoteIndices}
+              currentScaleNoteIndex={currentScaleNoteIndex}
               theme={theme}
             />
           ) : null}
         </div>
 
-        {circleVisualizationMode !== 'hidden' && !isFlashcardMode ? (
+        {circleVisualizationMode !== 'hidden' && !isStandalonePromptMode ? (
           <aside className="practice-sidebar">
             <CircleOfFifths
               currentTonic={phrase?.tonic ?? null}

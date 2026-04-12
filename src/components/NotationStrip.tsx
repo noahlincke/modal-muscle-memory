@@ -2,15 +2,18 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Accidental, Dot, Formatter, Renderer, Stave, StaveNote, StaveTie, Voice } from 'vexflow';
 import { getScaleOption } from '../content/scales';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
-import { octaveForSpellingAtMidi } from '../lib/theory/noteUtils';
+import { midiToPitchClass, octaveForSpellingAtMidi } from '../lib/theory/noteUtils';
 import { resolveRomanToChord } from '../lib/theory/roman';
-import type { ExerciseMode, Phrase } from '../types/music';
+import type { ExerciseMode, Phrase, ScalePrompt } from '../types/music';
 
 interface NotationStripProps {
   phrase: Phrase | null;
+  scalePrompt?: ScalePrompt | null;
   hasCompatiblePhrases: boolean;
   currentEventIndex: number;
   completedEventIds: Set<string>;
+  completedScaleNoteIndices?: Set<number>;
+  currentScaleNoteIndex?: number;
   clef: 'treble' | 'bass';
   exerciseMode: ExerciseMode;
   theme: 'light' | 'dark' | 'focus';
@@ -212,9 +215,12 @@ function scaleDisplayForStep(phrase: Phrase, stepIndex: number): ScaleDisplay | 
 
 export function NotationStrip({
   phrase,
+  scalePrompt = null,
   hasCompatiblePhrases,
   currentEventIndex,
   completedEventIds,
+  completedScaleNoteIndices = new Set<number>(),
+  currentScaleNoteIndex = 0,
   clef,
   exerciseMode,
   theme,
@@ -236,6 +242,105 @@ export function NotationStrip({
     }
 
     containerRef.current.innerHTML = '';
+
+    if (exerciseMode === 'scale' && scalePrompt) {
+      const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
+      const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette(theme);
+      const notes = scalePrompt.noteSequence;
+      const barCount = Math.max(1, Math.ceil(notes.length / 4));
+      const containerWidth = Math.max(containerRef.current.clientWidth, 960);
+      const horizontalPadding = 52;
+      const rightEdgePadding = 44;
+      const width = Math.max(containerWidth, (barCount * 244) + horizontalPadding + rightEdgePadding);
+      const height = 306;
+      const staveY = 96;
+      const fingerLabelOffset = scalePrompt.hand === 'lh' ? 34 : -30;
+      const barWidth = Math.max(220, Math.floor((width - horizontalPadding - rightEdgePadding) / barCount));
+      const contentStartX = Math.max(32, Math.floor((width - (barWidth * barCount) - rightEdgePadding) / 2));
+
+      renderer.resize(width, height);
+      const context = renderer.getContext();
+      context.setFillStyle(notationInk);
+      context.setStrokeStyle(notationInk);
+
+      for (let bar = 0; bar < barCount; bar += 1) {
+        const x = contentStartX + (bar * barWidth);
+        const stave = new Stave(x, staveY, barWidth - 12);
+        if (bar === 0) {
+          stave.addClef(clef).addTimeSignature('4/4');
+        }
+        stave.setContext(context).draw();
+
+        const noteSlice = notes.slice(bar * 4, (bar + 1) * 4);
+        const renderedNotes: Array<{
+          staveNote: StaveNote;
+          finger: number;
+          noteIndex: number;
+        }> = [];
+
+        noteSlice.forEach((note, noteOffset) => {
+          const noteIndex = (bar * 4) + noteOffset;
+          const vexKey = spelledMidiToVexKey(note.spelling, note.midi);
+          const staveNote = new StaveNote({
+            clef,
+            keys: [vexKey.key],
+            duration: 'q',
+          });
+          if (vexKey.accidental) {
+            staveNote.addModifier(new Accidental(vexKey.accidental), 0);
+          }
+
+          const intervalColor = intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi));
+          const isCompleted = completedScaleNoteIndices.has(noteIndex);
+          const isCurrent = noteIndex === currentScaleNoteIndex;
+          const noteColor = isCompleted
+            ? notationCompletedInk
+            : (isCurrent ? intervalColor : withAlpha(intervalColor, 0.62));
+          staveNote.setStyle({ fillStyle: noteColor, strokeStyle: noteColor });
+
+          renderedNotes.push({
+            staveNote,
+            finger: note.finger,
+            noteIndex,
+          });
+        });
+
+        if (renderedNotes.length < 4) {
+          for (let restIndex = renderedNotes.length; restIndex < 4; restIndex += 1) {
+            renderedNotes.push({
+              staveNote: new StaveNote({
+                clef,
+                keys: [restKeyForClef(clef)],
+                duration: 'qr',
+              }),
+              finger: 0,
+              noteIndex: -1,
+            });
+          }
+        }
+
+        const voice = new Voice({ numBeats: 4, beatValue: 4 });
+        voice.addTickables(renderedNotes.map((entry) => entry.staveNote));
+        new Formatter().joinVoices([voice]).format([voice], Math.max(190, barWidth - (bar === 0 ? 150 : 56)));
+        voice.draw(context, stave);
+
+        renderedNotes.forEach((entry) => {
+          if (entry.noteIndex < 0 || entry.finger <= 0) {
+            return;
+          }
+
+          const fingerText = String(entry.finger);
+          const noteHeadCenterX = (entry.staveNote.getNoteHeadBeginX() + entry.staveNote.getNoteHeadEndX()) / 2;
+          const yPos = (entry.staveNote.getYs()[0] ?? staveY) + fingerLabelOffset;
+          context.setFont('14px "IBM Plex Sans", sans-serif');
+          context.setFillStyle(notationInk);
+          const xPos = noteHeadCenterX - (context.measureText(fingerText).width / 2);
+          context.fillText(fingerText, xPos, yPos);
+        });
+      }
+
+      return;
+    }
 
     if (!phrase || phrase.events.length === 0) {
       return;
@@ -465,9 +570,27 @@ export function NotationStrip({
         context.fillText(entry.token.symbol, xPos, chordLabelY);
       });
     }
-  }, [phrase, currentEventIndex, completedEventIds, clef, exerciseMode, theme]);
+  }, [
+    phrase,
+    scalePrompt,
+    currentEventIndex,
+    completedEventIds,
+    completedScaleNoteIndices,
+    currentScaleNoteIndex,
+    clef,
+    exerciseMode,
+    theme,
+  ]);
 
-  if (!phrase) {
+  if (exerciseMode === 'scale' && !scalePrompt) {
+    return (
+      <div className="notation-strip empty">
+        {hasCompatiblePhrases ? 'Scale prompt loading…' : 'No compatible scale prompts for the current settings.'}
+      </div>
+    );
+  }
+
+  if (exerciseMode !== 'scale' && !phrase) {
     return (
       <div className="notation-strip empty">
         {hasCompatiblePhrases ? 'Phrase loading…' : 'No compatible phrases for the current settings.'}
@@ -477,6 +600,19 @@ export function NotationStrip({
 
   return (
     <div className={`notation-strip ${exerciseMode === 'improvisation' ? `improvisation ${clef}` : ''}`.trim()}>
+      {exerciseMode === 'scale' && scalePrompt ? (
+        <div className="notation-scale-hud">
+          <p className="notation-scale-row now">
+            <span className="notation-scale-tag">Now</span>
+            <span className="notation-scale-summary">
+              <span className="notation-scale-main">
+                <strong className="notation-scale-root">{scalePrompt.tonic}</strong>
+                <strong className="notation-scale-primary">{getScaleOption(scalePrompt.scaleId).label}</strong>
+              </span>
+            </span>
+          </p>
+        </div>
+      ) : null}
       {exerciseMode === 'improvisation' && currentScaleDisplay ? (
         <div className="notation-scale-hud">
           {nextScaleDisplay ? <ScaleHudRow label="Next" scaleDisplay={nextScaleDisplay} variant="next" /> : null}
