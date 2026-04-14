@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { applyCurriculumPreset } from '../../content/curriculum';
 import { availableFingeredScaleIdsForFamilies, getScaleFingering } from '../../content/scaleFingerings';
 import { createDefaultProgressState } from '../storage/progressStore';
 import { generateScalePrompt, listPlayableScaleTargets } from './scalePromptGenerator';
@@ -130,5 +131,21 @@ describe('generateScalePrompt', () => {
       scaleId: 'lydian_dominant',
       tonic: 'C',
     });
+  });
+
+  it('respects content-block scale filters in scale mode', () => {
+    const progress = createDefaultProgressState();
+
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'major_foundations');
+    expect(listPlayableScaleTargets(progress.exerciseConfig).filter((target) => target.tonic === 'C')).toEqual([
+      { scaleId: 'ionian', tonic: 'C' },
+    ]);
+
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'minor_foundations');
+    expect(listPlayableScaleTargets(progress.exerciseConfig).filter((target) => target.tonic === 'C')).toEqual([
+      { scaleId: 'aeolian', tonic: 'C' },
+      { scaleId: 'harmonic_minor', tonic: 'C' },
+      { scaleId: 'melodic_minor', tonic: 'C' },
+    ]);
   });
 });

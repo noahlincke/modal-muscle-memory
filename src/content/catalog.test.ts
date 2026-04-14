@@ -3,6 +3,7 @@ import {
   CONTENT_BLOCKS,
   CURRICULUM_PRESETS,
   deriveFamiliesForContentBlocks,
+  deriveScaleModeScaleIdsForContentBlocks,
   KEY_SET_OPTIONS,
   PROGRESSION_FAMILY_OPTIONS,
   SCALE_FAMILY_OPTIONS,
@@ -14,11 +15,16 @@ import { SCALE_LIBRARY } from './scales';
 describe('content catalog', () => {
   it('resolves every content block progression id', () => {
     const progressionIds = new Set(PROGRESSION_LIBRARY.map((progression) => progression.id));
+    const scaleIds = new Set(Object.keys(SCALE_LIBRARY));
 
     CONTENT_BLOCKS.forEach((block) => {
       expect(block.progressionIds.length).toBeGreaterThan(0);
       block.progressionIds.forEach((progressionId) => {
         expect(progressionIds.has(progressionId)).toBe(true);
+      });
+      expect(block.scaleModeScaleIds.length).toBeGreaterThan(0);
+      block.scaleModeScaleIds.forEach((scaleId) => {
+        expect(scaleIds.has(scaleId)).toBe(true);
       });
     });
   });
@@ -68,5 +74,14 @@ describe('content catalog', () => {
     expect(fullLibraryPreset).toBeDefined();
     expect(derived.enabledScaleFamilyIds.sort()).toEqual([...fullLibraryPreset!.enabledScaleFamilyIds].sort());
     expect(derived.enabledProgressionFamilyTags.sort()).toEqual([...fullLibraryPreset!.enabledProgressionFamilyTags].sort());
+  });
+
+  it('derives scale-mode scale ids from selected content blocks', () => {
+    expect(deriveScaleModeScaleIdsForContentBlocks(['major_foundations'])).toEqual(['ionian']);
+    expect(deriveScaleModeScaleIdsForContentBlocks(['minor_foundations'])).toEqual([
+      'aeolian',
+      'harmonic_minor',
+      'melodic_minor',
+    ]);
   });
 });

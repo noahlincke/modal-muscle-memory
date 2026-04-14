@@ -41,6 +41,15 @@ interface ImprovisationAttemptInput extends EventAttemptInput {
   allowedPitchClasses: string[];
 }
 
+interface MicImprovisationAttemptInput {
+  targetToken: EventAttemptInput['targetToken'];
+  detectedPitchClasses: string[];
+  allowedPitchClasses: string[];
+  expectedTimeMs: number;
+  submittedAtMs: number;
+  tolerances?: EventAttemptInput['tolerances'];
+}
+
 export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): EvaluationResult {
   const tolerances = input.tolerances ?? DEFAULT_TOLERANCES;
   const deltaMs = input.submittedAtMs - input.expectedTimeMs;
@@ -89,6 +98,61 @@ export function evaluateImprovisationAttempt(input: ImprovisationAttemptInput): 
 
   return {
     success: missingRequired.length === 0 && containsTargetVoicing && outsideAllowed.length === 0 && bucket === 'on_time',
+    timingDeltaMs: deltaMs,
+    timingBucket: bucket,
+    accuracy,
+    latencyMs: Math.abs(deltaMs),
+    matchedRequired: matchedRequired.length,
+    errors,
+  };
+}
+
+export function evaluateMicImprovisationAttempt(input: MicImprovisationAttemptInput): EvaluationResult {
+  const tolerances = input.tolerances ?? DEFAULT_TOLERANCES;
+  const deltaMs = input.submittedAtMs - input.expectedTimeMs;
+  const bucket = timingBucket(deltaMs, tolerances.earlyMs, tolerances.lateMs);
+  const playedPitchClasses = unique(input.detectedPitchClasses);
+  const required = unique(input.targetToken.requiredPitchClasses);
+  const allowed = new Set(unique([...required, ...input.allowedPitchClasses]));
+  const matchedRequired = required.filter((pitchClass) => playedPitchClasses.includes(pitchClass));
+  const outsideAllowed = playedPitchClasses.filter((pitchClass) => !allowed.has(pitchClass));
+  const missingRequired = required.filter((pitchClass) => !playedPitchClasses.includes(pitchClass));
+  const minimumRequiredMatches = Math.max(1, required.length - 1);
+
+  const errors: ScoringError[] = [];
+
+  if (bucket === 'early') {
+    errors.push({ code: 'early', message: 'Played too early.' });
+  }
+  if (bucket === 'late') {
+    errors.push({ code: 'late', message: 'Played too late.' });
+  }
+  if (matchedRequired.length === 0) {
+    errors.push({
+      code: 'wrong_target_notes',
+      message: 'Land at least one chord tone to advance.',
+    });
+  } else if (missingRequired.length > 1) {
+    errors.push({
+      code: 'missing_required_tone',
+      message: `Missing too many target tones: ${missingRequired.join(', ')}`,
+    });
+  }
+  if (outsideAllowed.length > 1) {
+    errors.push({
+      code: 'outside_allowed_scale',
+      message: `Too many outside tones detected: ${outsideAllowed.join(', ')}`,
+    });
+  }
+
+  const requiredRatio = matchedRequired.length / Math.max(required.length, 1);
+  const outsidePenalty = Math.max(0, outsideAllowed.length - 1) * 0.1;
+  const missingPenalty = Math.max(0, missingRequired.length - 1) * 0.1;
+  const timingPenalty = bucket === 'on_time' ? 0 : 0.05;
+  const accuracy = Math.max(0, Math.min(1, requiredRatio - outsidePenalty - missingPenalty - timingPenalty));
+
+  return {
+    success: matchedRequired.length >= minimumRequiredMatches && outsideAllowed.length <= 1 && bucket === 'on_time',
     timingDeltaMs: deltaMs,
     timingBucket: bucket,
     accuracy,

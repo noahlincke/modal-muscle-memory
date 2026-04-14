@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { keySignatureForRoot } from '../content/keys';
 import { getScaleOption } from '../content/scales';
+import type { MicConnectionState } from '../lib/audio/micAccess';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { progressionSubtitle } from '../lib/progressionLabels';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
@@ -13,6 +14,7 @@ import type {
   Phrase,
   ScalePrompt,
 } from '../types/music';
+import type { EffectiveInputMode } from '../types/progress';
 import { CircleOfFifths } from './CircleOfFifths';
 import { NotationStrip } from './NotationStrip';
 import { PianoView } from './PianoView';
@@ -65,7 +67,8 @@ interface PracticeLayoutProps {
   deckMasteryPct: number;
   latestEvaluation: EvaluationResult | null;
   midiState: MidiConnectionState;
-  inputMode: 'midi' | 'qwerty';
+  micState: MicConnectionState;
+  inputMode: EffectiveInputMode;
   canStepKey: boolean;
   qwertyOctaveShift: number;
   tempo: number;
@@ -354,6 +357,7 @@ export function PracticeLayout({
   deckMasteryPct,
   latestEvaluation,
   midiState,
+  micState,
   inputMode,
   canStepKey,
   qwertyOctaveShift,
@@ -455,11 +459,15 @@ export function PracticeLayout({
   const [dismissedQwertyWarning, setDismissedQwertyWarning] = useState(false);
   const [isPracticeTrackingFlashing, setIsPracticeTrackingFlashing] = useState(false);
   const [openPicker, setOpenPicker] = useState<'exercise' | 'key' | 'content' | null>(null);
-  const midiWarning = inputMode === 'qwerty'
-    ? 'QWERTY mode active · connect MIDI to switch'
-    : (midiState.error ?? 'MIDI not detected');
+  const inputWarning = inputMode === 'qwerty'
+    ? 'QWERTY mode pinned'
+    : (inputMode === 'mic'
+      ? (micState.error ?? (micState.ready ? 'Mic active' : 'Mic waiting for permission'))
+      : (midiState.error ?? null));
   const showDismissibleQwertyWarning = inputMode === 'qwerty' && !dismissedQwertyWarning;
-  const showPersistentMidiWarning = inputMode !== 'qwerty' && Boolean(midiState.error);
+  const showPersistentInputWarning = inputMode === 'mic'
+    ? Boolean(inputWarning)
+    : inputMode === 'midi' && Boolean(inputWarning);
   const keyboardLaneIsLabelCycleTarget = exerciseMode === 'improvisation';
   const keyboardLaneLabel = scaleGuideLabelMode === 'degrees'
     ? 'Scale guides shown as interval numbers. Click keyboard to show note names.'
@@ -569,11 +577,11 @@ export function PracticeLayout({
               onClick={() => setDismissedQwertyWarning(true)}
               title="Dismiss qwerty mode notice"
             >
-              {midiWarning}
+              {inputWarning}
             </button>
           ) : null}
-          {showPersistentMidiWarning ? (
-            <span className="midi-warning">{midiWarning}</span>
+          {showPersistentInputWarning && inputWarning ? (
+            <span className="midi-warning">{inputWarning}</span>
           ) : null}
 
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />

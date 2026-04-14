@@ -13,6 +13,7 @@ import { getPackForLane } from '../../content/packs';
 import type { ExerciseMode, ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
 import type {
   AttemptRecord,
+  InputModePreference,
   ExerciseConfig,
   ProgressState,
   SessionRecord,
@@ -23,7 +24,7 @@ import { registerForClef, type StaffClef } from '../theory/voicingPlacement';
 import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
@@ -187,6 +188,10 @@ function normalizeCircleVisualizationMode(value: unknown): UserSettings['circleV
   return 'intervals';
 }
 
+function normalizeInputModePreference(value: unknown): InputModePreference {
+  return value === 'qwerty' ? 'qwerty' : 'auto';
+}
+
 function normalizeStaffClef(value: unknown): StaffClef {
   return value === 'bass' ? 'bass' : 'treble';
 }
@@ -204,6 +209,7 @@ function defaultSettings(): UserSettings {
     registerMax: trebleRegister.max,
     scoringMode: 'lenient',
     midiInputId: null,
+    inputModePreference: 'auto',
     enableReferencePlayback: true,
     enableComputerKeyboardAudio: true,
     circleVisualizationMode: 'intervals',
@@ -348,6 +354,7 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
       registerMax: register.max,
       scaleGuideLabelMode: normalizeScaleGuideLabelMode(rawSettings.scaleGuideLabelMode),
       circleVisualizationMode: normalizeCircleVisualizationMode(rawSettings.circleVisualizationMode),
+      inputModePreference: normalizeInputModePreference(rawSettings.inputModePreference),
     },
     unlocksByLane: unlocks,
     nodeMastery: raw.nodeMastery ?? {},

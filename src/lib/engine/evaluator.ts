@@ -122,6 +122,17 @@ interface FlashcardAttemptInput extends Omit<EventAttemptInput, 'targetToken'> {
   acceptableTokens: ChordToken[];
 }
 
+interface MicAttemptInput {
+  targetToken: ChordToken;
+  detectedPitchClasses: string[];
+  expectedTimeMs: number;
+  submittedAtMs: number;
+  tolerances?: {
+    earlyMs: number;
+    lateMs: number;
+  };
+}
+
 function betterFlashcardResult(candidate: EvaluationResult, current: EvaluationResult | null): boolean {
   if (!current) {
     return true;
@@ -150,6 +161,115 @@ export function evaluateFlashcardAttempt(input: FlashcardAttemptInput): Evaluati
       ...input,
       targetToken,
     });
+
+    if (betterFlashcardResult(candidate, bestResult)) {
+      bestResult = candidate;
+    }
+  });
+
+  return bestResult ?? {
+    success: false,
+    timingDeltaMs: 0,
+    timingBucket: 'on_time',
+    accuracy: 0,
+    latencyMs: 0,
+    matchedRequired: 0,
+    errors: [{
+      code: 'wrong_target_notes',
+      message: 'No accepted flashcard voicings are available for this chord.',
+    }],
+  };
+}
+
+function evaluateMicPitchClasses(
+  targetToken: ChordToken,
+  detectedPitchClasses: string[],
+  expectedTimeMs: number,
+  submittedAtMs: number,
+  tolerances?: MicAttemptInput['tolerances'],
+): EvaluationResult {
+  const resolvedTolerances = tolerances ?? DEFAULT_TOLERANCES;
+  const deltaMs = submittedAtMs - expectedTimeMs;
+  const bucket = timingBucket(deltaMs, resolvedTolerances.earlyMs, resolvedTolerances.lateMs);
+  const playedPitchClasses = unique(detectedPitchClasses);
+  const required = unique(targetToken.requiredPitchClasses);
+  const optional = unique(targetToken.optionalPitchClasses);
+  const allowed = new Set([...required, ...optional]);
+  const matchedRequired = required.filter((pitchClass) => playedPitchClasses.includes(pitchClass));
+  const missingRequired = required.filter((pitchClass) => !playedPitchClasses.includes(pitchClass));
+  const wrongPitchClasses = playedPitchClasses.filter((pitchClass) => !allowed.has(pitchClass));
+  const minimumRequiredMatches = Math.max(1, required.length - 1);
+  const hasAnyTargetTone = matchedRequired.length > 0;
+  const structurallyAccepted = hasAnyTargetTone
+    && matchedRequired.length >= minimumRequiredMatches
+    && wrongPitchClasses.length <= 1;
+
+  const errors: ScoringError[] = [];
+
+  if (bucket === 'early') {
+    errors.push({ code: 'early', message: 'Played too early.' });
+  }
+  if (bucket === 'late') {
+    errors.push({ code: 'late', message: 'Played too late.' });
+  }
+  if (!hasAnyTargetTone) {
+    errors.push({
+      code: 'wrong_target_notes',
+      message: 'Detect at least one target chord tone to advance.',
+    });
+  } else if (missingRequired.length > 1) {
+    errors.push({
+      code: 'missing_required_tone',
+      message: `Missing too many target tones: ${missingRequired.join(', ')}`,
+    });
+  }
+  if (wrongPitchClasses.length > 1) {
+    errors.push({
+      code: 'wrong_pitch_class',
+      message: `Too many unrelated tones detected: ${wrongPitchClasses.join(', ')}`,
+    });
+  }
+
+  const requiredRatio = matchedRequired.length / Math.max(required.length, 1);
+  const wrongPenalty = Math.max(0, wrongPitchClasses.length - 1) * 0.12;
+  const missingPenalty = Math.max(0, missingRequired.length - 1) * 0.12;
+  const timingPenalty = bucket === 'on_time' ? 0 : 0.05;
+  const accuracy = Math.max(0, Math.min(1, requiredRatio - wrongPenalty - missingPenalty - timingPenalty));
+
+  return {
+    success: structurallyAccepted && bucket === 'on_time',
+    timingDeltaMs: deltaMs,
+    timingBucket: bucket,
+    accuracy,
+    latencyMs: Math.abs(deltaMs),
+    matchedRequired: matchedRequired.length,
+    errors,
+  };
+}
+
+export function evaluateMicAttempt(input: MicAttemptInput): EvaluationResult {
+  return evaluateMicPitchClasses(
+    input.targetToken,
+    input.detectedPitchClasses,
+    input.expectedTimeMs,
+    input.submittedAtMs,
+    input.tolerances,
+  );
+}
+
+export function evaluateMicFlashcardAttempt(
+  input: Omit<MicAttemptInput, 'targetToken'> & { acceptableTokens: ChordToken[] },
+): EvaluationResult {
+  let bestResult: EvaluationResult | null = null;
+
+  input.acceptableTokens.forEach((targetToken) => {
+    const candidate = evaluateMicPitchClasses(
+      targetToken,
+      input.detectedPitchClasses,
+      input.expectedTimeMs,
+      input.submittedAtMs,
+      input.tolerances,
+    );
 
     if (betterFlashcardResult(candidate, bestResult)) {
       bestResult = candidate;

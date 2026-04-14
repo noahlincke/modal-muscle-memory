@@ -9,6 +9,7 @@ import {
   countMatchingProgressions,
   type PotentialPhraseVariant,
 } from '../lib/engine/phraseGenerator';
+import type { MicConnectionState } from '../lib/audio/micAccess';
 import { progressionRomanSummary, progressionSubtitle } from '../lib/progressionLabels';
 import { VOICING_FAMILY_LABELS } from '../lib/voicingFamilies';
 import type {
@@ -17,11 +18,12 @@ import type {
   ScaleFamilyId,
   VoicingFamily,
 } from '../types/music';
-import type { ExerciseConfig, ProgressState } from '../types/progress';
+import type { EffectiveInputMode, ExerciseConfig, ProgressState } from '../types/progress';
 
 interface PracticeSettingsDrawerProps {
   progress: ProgressState;
-  inputMode: 'midi' | 'qwerty';
+  inputMode: EffectiveInputMode;
+  micState: MicConnectionState;
   potentialProgressionCount: number;
   potentialPhraseVariants: PotentialPhraseVariant[];
   authConfigured: boolean;
@@ -40,6 +42,7 @@ interface PracticeSettingsDrawerProps {
   onToggleSelectedVoicing: (voicingFamily: VoicingFamily) => void;
   onToggleScaleFamily: (scaleFamilyId: ScaleFamilyId) => void;
   onToggleProgressionFamily: (progressionFamilyTag: ProgressionFamilyTag) => void;
+  onSelectInputModePreference: (preference: ProgressState['settings']['inputModePreference']) => void;
   onToggleComputerKeyboardAudio: () => void;
 }
 
@@ -73,6 +76,7 @@ function PersonIcon() {
 export function PracticeSettingsDrawer({
   progress,
   inputMode,
+  micState,
   potentialProgressionCount,
   potentialPhraseVariants,
   authConfigured,
@@ -89,6 +93,7 @@ export function PracticeSettingsDrawer({
   onToggleSelectedVoicing,
   onToggleScaleFamily,
   onToggleProgressionFamily,
+  onSelectInputModePreference,
   onToggleComputerKeyboardAudio,
 }: PracticeSettingsDrawerProps) {
   const [emailInput, setEmailInput] = useState('');
@@ -361,9 +366,50 @@ export function PracticeSettingsDrawer({
 
         <section className="settings-section">
           <div className="settings-section-copy">
-            <h3>Computer Keyboard</h3>
-            <p>Use the computer keyboard when MIDI is disconnected. Audio follows the toggle below.</p>
+            <h3>Input Source</h3>
+            <p>MIDI and Mic auto-switch. QWERTY only stays active when you pin it here.</p>
           </div>
+          <div className="settings-toggle-inline">
+            <strong>Input Mode</strong>
+            <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Input source">
+              <button
+                type="button"
+                className={`practice-mode-toggle-option ${inputMode === 'midi' ? 'active' : ''}`.trim()}
+                aria-pressed={inputMode === 'midi'}
+                onClick={() => onSelectInputModePreference('auto')}
+              >
+                MIDI
+              </button>
+              <button
+                type="button"
+                className={`practice-mode-toggle-option ${inputMode === 'mic' ? 'active' : ''}`.trim()}
+                aria-pressed={inputMode === 'mic'}
+                onClick={() => onSelectInputModePreference('auto')}
+              >
+                Mic
+              </button>
+              <button
+                type="button"
+                className={`practice-mode-toggle-option ${progress.settings.inputModePreference === 'qwerty' ? 'active' : ''}`.trim()}
+                aria-pressed={progress.settings.inputModePreference === 'qwerty'}
+                onClick={() => onSelectInputModePreference('qwerty')}
+              >
+                QWERTY
+              </button>
+            </div>
+          </div>
+          <p className="settings-meta">
+            {progress.settings.inputModePreference === 'qwerty'
+              ? 'QWERTY is pinned until you switch back to auto.'
+              : (inputMode === 'midi'
+                ? 'Auto source: MIDI is active while a device is connected. Mic resumes automatically when MIDI disconnects.'
+                : 'Auto source: Mic is active because no MIDI input is connected.')}
+          </p>
+          <p className="settings-meta">
+            {micState.error
+              ? `Mic status: ${micState.error}`
+              : (micState.ready ? 'Mic status: listening.' : 'Mic status: waiting for permission or idle until Mic mode is active.')}
+          </p>
           <div className="settings-toggle-inline">
             <strong>Computer Audio</strong>
             <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Computer audio">
@@ -385,11 +431,11 @@ export function PracticeSettingsDrawer({
               </button>
             </div>
           </div>
-          {inputMode === 'qwerty' ? (
-            <p className="settings-meta">QWERTY note entry stays available while MIDI is disconnected. This toggle controls whether the browser plays those notes.</p>
-          ) : (
-            <p className="settings-meta">This toggle controls whether the browser plays incoming notes.</p>
-          )}
+          <p className="settings-meta">
+            {inputMode === 'qwerty'
+              ? 'This controls whether the browser plays pinned QWERTY notes.'
+              : 'This controls whether the browser previews incoming MIDI or QWERTY notes.'}
+          </p>
         </section>
 
         {isImprovisationMode ? (

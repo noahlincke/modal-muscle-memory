@@ -15,10 +15,20 @@ import { PracticeLayout } from './components/PracticeLayout';
 import { PracticeSettingsDrawer } from './components/PracticeSettingsDrawer';
 import { ProgressScreen } from './components/ProgressScreen';
 import type { WalkthroughStep } from './components/WalkthroughBubble';
+import { createMicFallbackState, MicAccessController, type MicConnectionState } from './lib/audio/micAccess';
 import { Metronome } from './lib/audio/metronome';
+import type { PitchObservation } from './lib/audio/pitchDetection';
 import { PreviewPlayback } from './lib/audio/previewPlayback';
-import { evaluateAttempt, evaluateFlashcardAttempt } from './lib/engine/evaluator';
-import { evaluateImprovisationAttempt } from './lib/engine/improvisationEvaluator';
+import {
+  evaluateAttempt,
+  evaluateFlashcardAttempt,
+  evaluateMicAttempt,
+  evaluateMicFlashcardAttempt,
+} from './lib/engine/evaluator';
+import {
+  evaluateImprovisationAttempt,
+  evaluateMicImprovisationAttempt,
+} from './lib/engine/improvisationEvaluator';
 import {
   activeVoicingFamiliesForPractice,
   availableVoicingFamiliesForConfig,
@@ -46,6 +56,9 @@ import {
   qwertyControlActionForKey,
   qwertyFriendlyRangeForOctaveShift,
 } from './lib/input/qwertyInput';
+import { MicCapture } from './lib/input/micCapture';
+import { filterMicOverlapPitchClasses } from './lib/input/micOverlap';
+import { resolveEffectiveInputMode } from './lib/input/inputMode';
 import { loadRemoteProgress, saveRemoteProgress } from './lib/auth/progressSync';
 import { getSupabaseClient, isSupabaseConfigured } from './lib/auth/supabaseClient';
 import { buildProgressionMasterySummaries, MASTERY_MIN_ATTEMPTS } from './lib/progressionMastery';
@@ -63,7 +76,7 @@ import {
 import { progressionSubtitle } from './lib/progressionLabels';
 import { resolveRomanToChord } from './lib/theory/roman';
 import type { EvaluationResult, Phrase, PhraseEvent, ScaleId, ScalePrompt, VoicingFamily } from './types/music';
-import type { AttemptRecord, ProgressState } from './types/progress';
+import type { AttemptRecord, EffectiveInputMode, ProgressState } from './types/progress';
 
 type Screen = 'practice' | 'progress';
 type ThemeMode = 'light' | 'dark' | 'focus';
@@ -74,6 +87,7 @@ const WALKTHROUGH_DEBUG_PARAM = 'walkthrough';
 const WALKTHROUGH_STEPS: WalkthroughStep[] = ['exercise', 'key', 'content', 'settings'];
 const ALL_CONTENT_BLOCK_IDS = CONTENT_BLOCKS.map((block) => block.id);
 const NON_FULL_LIBRARY_PRESETS = CURRICULUM_PRESETS.filter((preset) => preset.id !== 'full_library');
+const MIC_OVERLAP_GRACE_MS = 260;
 
 interface ExercisePickerItem {
   id: string;
@@ -207,6 +221,16 @@ interface PendingChordAdvance {
   pendingAttemptRecord?: AttemptRecord;
 }
 
+interface AttemptSubmissionOptions {
+  inputSource?: EffectiveInputMode;
+  detectedPitchClasses?: string[];
+}
+
+interface MicOverlapState {
+  pitchClasses: string[];
+  expiresAt: number;
+}
+
 interface ImprovisationOverlayContext {
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
@@ -246,6 +270,23 @@ function normalizeTempo(input: number): number {
 
 function unique(items: string[]): string[] {
   return [...new Set(items)];
+}
+
+function activeMicOverlapPitchClasses(
+  overlap: MicOverlapState,
+  now: number,
+): string[] {
+  return overlap.expiresAt > now ? overlap.pitchClasses : [];
+}
+
+function nextMicOverlapState(
+  pitchClasses: string[],
+  submittedAtMs: number,
+): MicOverlapState {
+  return {
+    pitchClasses,
+    expiresAt: submittedAtMs + MIC_OVERLAP_GRACE_MS,
+  };
 }
 
 function cycleIndex(length: number, currentIndex: number, direction: 'forward' | 'backward'): number {
@@ -541,12 +582,14 @@ export default function App() {
   const isRunningRef = useRef(false);
 
   const [midiState, setMidiState] = useState<MidiConnectionState>(createMidiFallbackState());
+  const [micState, setMicState] = useState<MicConnectionState>(createMicFallbackState());
   const [qwertyOctaveShift, setQwertyOctaveShift] = useState(() => defaultQwertyOctaveShiftForClef(progress.settings.staffClef));
   const [practiceTrackingFlashToken, setPracticeTrackingFlashToken] = useState(0);
 
   const metronomeRef = useRef<Metronome>(new Metronome());
   const previewRef = useRef<PreviewPlayback>(new PreviewPlayback());
   const captureRef = useRef<ChordCapture>(new ChordCapture({ simultaneityWindowMs: 90 }));
+  const micCaptureRef = useRef<MicCapture>(new MicCapture());
   const scaleCaptureRef = useRef<ScaleCapture>(new ScaleCapture());
   const qwertyOctaveShiftRef = useRef(defaultQwertyOctaveShiftForClef(progress.settings.staffClef));
   const qwertyPressedNotesRef = useRef<Map<string, number>>(new Map());
@@ -557,6 +600,7 @@ export default function App() {
   const phraseAttemptHistoryRef = useRef<AttemptRecord[]>([]);
   const pendingAdvanceRef = useRef<PendingChordAdvance | null>(null);
   const carryoverNotesRef = useRef<Set<number>>(new Set());
+  const micOverlapRef = useRef<MicOverlapState>({ pitchClasses: [], expiresAt: 0 });
   const suppressCarryoverDisplayRef = useRef(false);
   const previewRequestIdRef = useRef(0);
   const selectionLocksRef = useRef<SelectionLocks>({ exercise: false, key: false });
@@ -576,7 +620,13 @@ export default function App() {
     () => listPlayableScaleTargets(progress.exerciseConfig).length,
     [progress.exerciseConfig],
   );
-  const inputMode = midiState.ready ? 'midi' : 'qwerty';
+  const inputMode = useMemo(
+    () => resolveEffectiveInputMode({
+      preferredInputMode: progress.settings.inputModePreference,
+      midiReady: midiState.ready,
+    }),
+    [midiState.ready, progress.settings.inputModePreference],
+  );
   const computerKeyboardAudioEnabled = progress.settings.enableComputerKeyboardAudio;
   const practiceCountsTowardProgress = progress.settings.practiceTrackingMode === 'test';
 
@@ -835,7 +885,7 @@ export default function App() {
   }, [supabase]);
 
   useEffect(() => {
-    if (midiState.ready || progress.exerciseConfig.improvisationAdvanceMode !== 'footpedal_release') {
+    if (inputMode === 'midi' || progress.exerciseConfig.improvisationAdvanceMode !== 'footpedal_release') {
       return;
     }
 
@@ -847,7 +897,7 @@ export default function App() {
       },
     };
     commitProgress(next);
-  }, [commitProgress, midiState.ready, progress.exerciseConfig.improvisationAdvanceMode]);
+  }, [commitProgress, inputMode, progress.exerciseConfig.improvisationAdvanceMode]);
 
   const updateCurrentEventIndex = useCallback((nextIndex: number) => {
     currentEventIndexRef.current = nextIndex;
@@ -878,6 +928,8 @@ export default function App() {
     phraseAttemptHistoryRef.current = [];
     pendingAdvanceRef.current = null;
     captureRef.current.clearRecent();
+    micCaptureRef.current.clearRecent();
+    micOverlapRef.current = { pitchClasses: [], expiresAt: 0 };
     scaleCaptureRef.current.clear();
   }, [updateCurrentEventIndex]);
 
@@ -900,18 +952,12 @@ export default function App() {
     }
   }, [
     progress,
-    progress.exerciseConfig,
-    progress.settings.staffClef,
-    progress.settings.registerMin,
-    progress.settings.registerMax,
     scalePromptOverrides,
     scalePromptSeed,
   ]);
 
   useEffect(() => {
     currentScaleNoteIndexRef.current = 0;
-    setCompletedScaleNoteIndices(new Set());
-    setCurrentScaleNoteIndex(0);
   }, [scalePrompt?.id]);
 
   const regenerateScalePrompt = useCallback((overrides: {
@@ -923,12 +969,17 @@ export default function App() {
   }, []);
 
   const syncVisibleMidiNotes = useCallback(() => {
+    if (inputMode === 'mic') {
+      setMidiNotes(new Set(micCaptureRef.current.activeNoteNumbers));
+      return;
+    }
+
     setMidiNotes(new Set(
       progressRef.current.exerciseConfig.mode === 'scale'
         ? scaleCaptureRef.current.activeNoteNumbers
         : captureRef.current.activeNoteNumbers,
     ));
-  }, []);
+  }, [inputMode]);
 
   const reconcileCarryoverDisplay = useCallback(() => {
     if (!suppressCarryoverDisplayRef.current) {
@@ -1009,7 +1060,7 @@ export default function App() {
     } else {
       setKeyboardTargetOverrideNotes(null);
     }
-    const useKeyboardFriendlyRange = !midiState.ready;
+    const useKeyboardFriendlyRange = inputMode === 'qwerty';
     const lockedPhrase = phraseRef.current;
     const progressionOverrideId = selectionLocksRef.current.exercise ? lockedPhrase?.progressionId : undefined;
     const tonicOverride = selectionLocksRef.current.key ? lockedPhrase?.tonic : undefined;
@@ -1041,7 +1092,7 @@ export default function App() {
       return;
     }
     resetPracticeSurface(nextPhrase);
-  }, [midiState.ready, regenerateScalePrompt, resetPracticeSurface, scalePrompt]);
+  }, [inputMode, regenerateScalePrompt, resetPracticeSurface, scalePrompt]);
 
   const generateSelectedPhrase = useCallback((
     config: ProgressState['exerciseConfig'],
@@ -1061,7 +1112,7 @@ export default function App() {
       return;
     }
 
-    const useKeyboardFriendlyRange = !midiState.ready;
+    const useKeyboardFriendlyRange = inputMode === 'qwerty';
 
     carryoverNotesRef.current = new Set(captureRef.current.activeNoteNumbers);
     suppressCarryoverDisplayRef.current = false;
@@ -1088,7 +1139,7 @@ export default function App() {
       console.error('Unable to generate selected phrase.', error);
       resetPracticeSurface(null);
     }
-  }, [midiState.ready, regenerateScalePrompt, resetPracticeSurface]);
+  }, [inputMode, regenerateScalePrompt, resetPracticeSurface]);
 
   const stepCurrentKey = useCallback((direction: 'clockwise' | 'counterclockwise') => {
     if (progressRef.current.exerciseConfig.mode === 'scale') {
@@ -1420,6 +1471,7 @@ export default function App() {
     playedNotes: number[],
     submittedAtMs: number,
     submissionReason: 'required_detected' | 'burst_closed',
+    options: AttemptSubmissionOptions = {},
   ) => {
     const workingPhrase = phraseRef.current;
     if (!workingPhrase) {
@@ -1439,6 +1491,10 @@ export default function App() {
 
     const isImprovisationMode = progressRef.current.exerciseConfig.mode === 'improvisation';
     const isFlashcardMode = progressRef.current.exerciseConfig.mode === 'chord_flashcards';
+    const inputSource = options.inputSource ?? inputMode;
+    const isMicInput = inputSource === 'mic';
+    const rawDetectedPitchClasses = options.detectedPitchClasses
+      ?? unique(playedNotes.map((note) => midiToPitchClass(note)));
     if (isImprovisationMode && submissionReason !== 'required_detected') {
       return;
     }
@@ -1467,35 +1523,80 @@ export default function App() {
         progressRef.current.settings,
       )
       : [];
+    const allowedMicPitchClasses = isImprovisationMode
+      ? improvisationOverlayForEvent(workingPhrase, eventIndex).allowedPitchClasses
+      : isFlashcardMode
+        ? unique(acceptableFlashcardTokens.flatMap((candidate) => [
+          ...candidate.requiredPitchClasses,
+          ...candidate.optionalPitchClasses,
+        ]))
+        : unique([
+          ...token.requiredPitchClasses,
+          ...token.optionalPitchClasses,
+        ]);
+    const detectedPitchClasses = isMicInput
+      ? filterMicOverlapPitchClasses(
+        rawDetectedPitchClasses,
+        allowedMicPitchClasses,
+        activeMicOverlapPitchClasses(micOverlapRef.current, submittedAtMs),
+      )
+      : rawDetectedPitchClasses;
+
+    if (isMicInput && detectedPitchClasses.length === 0) {
+      return;
+    }
 
     const result = isImprovisationMode
-      ? evaluateImprovisationAttempt({
-        targetToken: token,
-        playedNotes,
-        allowedPitchClasses: improvisationOverlayForEvent(workingPhrase, eventIndex).allowedPitchClasses,
-        expectedTimeMs,
-        submittedAtMs,
-        scoringMode: progressRef.current.settings.scoringMode,
-      })
+      ? (isMicInput
+        ? evaluateMicImprovisationAttempt({
+          targetToken: token,
+          detectedPitchClasses,
+          allowedPitchClasses: allowedMicPitchClasses,
+          expectedTimeMs,
+          submittedAtMs,
+        })
+        : evaluateImprovisationAttempt({
+          targetToken: token,
+          playedNotes,
+          allowedPitchClasses: improvisationOverlayForEvent(workingPhrase, eventIndex).allowedPitchClasses,
+          expectedTimeMs,
+          submittedAtMs,
+          scoringMode: progressRef.current.settings.scoringMode,
+        }))
       : isFlashcardMode
-        ? evaluateFlashcardAttempt({
-          acceptableTokens: acceptableFlashcardTokens,
+        ? (isMicInput
+          ? evaluateMicFlashcardAttempt({
+            acceptableTokens: acceptableFlashcardTokens,
+            detectedPitchClasses,
+            expectedTimeMs,
+            submittedAtMs,
+          })
+          : evaluateFlashcardAttempt({
+            acceptableTokens: acceptableFlashcardTokens,
+            playedNotes,
+            expectedTimeMs,
+            submittedAtMs,
+            scoringMode: progressRef.current.settings.scoringMode,
+            previousEventEndNotes: previousEventEndNotesRef.current,
+          }))
+      : (isMicInput
+        ? evaluateMicAttempt({
+          targetToken: token,
+          detectedPitchClasses,
+          expectedTimeMs,
+          submittedAtMs,
+        })
+        : evaluateAttempt({
+          targetToken: token,
           playedNotes,
           expectedTimeMs,
           submittedAtMs,
           scoringMode: progressRef.current.settings.scoringMode,
           previousEventEndNotes: previousEventEndNotesRef.current,
-        })
-      : evaluateAttempt({
-        targetToken: token,
-        playedNotes,
-        expectedTimeMs,
-        submittedAtMs,
-        scoringMode: progressRef.current.settings.scoringMode,
-        previousEventEndNotes: previousEventEndNotesRef.current,
-      });
+        }));
 
     const deferFlashcardMiss = isFlashcardMode
+      && !isMicInput
       && submissionReason === 'burst_closed'
       && !result.success
       && flashcardAttemptStillPossible(playedNotes, acceptableFlashcardTokens);
@@ -1596,6 +1697,18 @@ export default function App() {
         setStreak(0);
       }
 
+      if (isMicInput) {
+        micOverlapRef.current = nextMicOverlapState(detectedPitchClasses, submittedAtMs);
+        micCaptureRef.current.clearRecent();
+        if (isLastEvent) {
+          finishPhrase(nextProgress, workingPhrase);
+          return;
+        }
+
+        updateCurrentEventIndex(eventIndex + 1);
+        return;
+      }
+
       if (isLastEvent) {
         pendingAdvanceRef.current = {
           nextIndex: null,
@@ -1626,9 +1739,21 @@ export default function App() {
     });
 
     previousTokenIdRef.current = token.id;
-    previousEventEndNotesRef.current = playedNotes;
+    previousEventEndNotesRef.current = isMicInput ? [] : playedNotes;
 
     const isLastEvent = eventIndex >= workingPhrase.events.length - 1;
+    if (isMicInput) {
+      micOverlapRef.current = nextMicOverlapState(detectedPitchClasses, submittedAtMs);
+      micCaptureRef.current.clearRecent();
+      if (isLastEvent) {
+        finishPhrase(nextProgress, workingPhrase);
+        return;
+      }
+
+      updateCurrentEventIndex(eventIndex + 1);
+      return;
+    }
+
     if (isLastEvent) {
       pendingAdvanceRef.current = {
         nextIndex: null,
@@ -1644,9 +1769,9 @@ export default function App() {
       acceptedNotes: [...playedNotes],
       submittedAtMs,
     };
-  }, [beatOffsetForEvent, commitProgress, practiceCountsTowardProgress]);
+  }, [beatOffsetForEvent, commitProgress, finishPhrase, inputMode, practiceCountsTowardProgress, updateCurrentEventIndex]);
 
-  const handleMidiMessage = useCallback((message: ParsedMidiMessage) => {
+  const handleNoteMessage = useCallback((message: ParsedMidiMessage) => {
     if (computerKeyboardAudioEnabled) {
       if (message.type === 'note_on') {
         void previewRef.current.playInputNote(message.noteNumber);
@@ -1740,6 +1865,79 @@ export default function App() {
     syncVisibleMidiNotes,
   ]);
 
+  const handleHardwareMidiMessage = useCallback((message: ParsedMidiMessage) => {
+    if (inputMode !== 'midi') {
+      return;
+    }
+
+    handleNoteMessage(message);
+  }, [handleNoteMessage, inputMode]);
+
+  const handleMicObservation = useCallback((observation: PitchObservation) => {
+    if (inputMode !== 'mic') {
+      return;
+    }
+
+    const { stableEvent, activeChanged } = micCaptureRef.current.ingest(observation);
+    if (activeChanged) {
+      syncVisibleMidiNotes();
+    }
+
+    if (!stableEvent) {
+      return;
+    }
+
+    syncVisibleMidiNotes();
+
+    if (progressRef.current.exerciseConfig.mode === 'scale') {
+      if (!scalePrompt) {
+        return;
+      }
+
+      const expectedIndex = currentScaleNoteIndexRef.current;
+      const expectedNote = scalePrompt.noteSequence[expectedIndex];
+      if (!expectedNote) {
+        return;
+      }
+
+      if (stableEvent.pitchClass !== midiToPitchClass(expectedNote.midi)) {
+        return;
+      }
+
+      const nextIndex = expectedIndex + 1;
+      currentScaleNoteIndexRef.current = nextIndex;
+      setCompletedScaleNoteIndices((current) => {
+        const next = new Set(current);
+        next.add(expectedIndex);
+        return next;
+      });
+      setCurrentScaleNoteIndex(nextIndex);
+      setStreak((value) => value + 1);
+
+      if (nextIndex >= scalePrompt.noteSequence.length) {
+        if (scaleAdvanceTimerRef.current !== null) {
+          window.clearTimeout(scaleAdvanceTimerRef.current);
+        }
+        scaleAdvanceTimerRef.current = window.setTimeout(() => {
+          generateNextPhrase(progressRef.current);
+        }, 260);
+      }
+      return;
+    }
+
+    const submission = micCaptureRef.current.maybeBuildSubmission(
+      pendingAdvanceRef.current ? [] : currentRequiredPitchClasses(),
+      stableEvent.timestamp,
+    );
+
+    if (submission) {
+      submitAttempt(submission.notes, submission.timestamp, submission.reason, {
+        inputSource: 'mic',
+        detectedPitchClasses: submission.pitchClasses,
+      });
+    }
+  }, [currentRequiredPitchClasses, generateNextPhrase, inputMode, scalePrompt, submitAttempt, syncVisibleMidiNotes]);
+
   const releaseAllQwertyNotes = useCallback(() => {
     if (qwertyPressedNotesRef.current.size === 0) {
       return;
@@ -1749,13 +1947,13 @@ export default function App() {
     const activeNotes = [...qwertyPressedNotesRef.current.values()];
     qwertyPressedNotesRef.current.clear();
     activeNotes.forEach((noteNumber) => {
-      handleMidiMessage(createSyntheticNoteMessage('note_off', noteNumber, now));
+      handleNoteMessage(createSyntheticNoteMessage('note_off', noteNumber, now));
     });
-  }, [handleMidiMessage]);
+  }, [handleNoteMessage]);
 
   useEffect(() => {
     const midiController = new MidiAccessController({
-      onMessage: handleMidiMessage,
+      onMessage: handleHardwareMidiMessage,
       onStateChange: setMidiState,
     });
 
@@ -1764,7 +1962,34 @@ export default function App() {
     return () => {
       midiController.disconnect();
     };
-  }, [handleMidiMessage]);
+  }, [handleHardwareMidiMessage]);
+
+  useEffect(() => {
+    const micController = new MicAccessController({
+      onObservation: handleMicObservation,
+      onStateChange: setMicState,
+    });
+
+    if (screen === 'practice' && !settingsOpen && inputMode === 'mic') {
+      void micController.start();
+    } else {
+      micController.stop();
+    }
+
+    return () => {
+      micController.stop();
+    };
+  }, [handleMicObservation, inputMode, screen, settingsOpen]);
+
+  useEffect(() => {
+    if (inputMode === 'mic') {
+      return;
+    }
+
+    micCaptureRef.current.clear();
+    micOverlapRef.current = { pitchClasses: [], expiresAt: 0 };
+    syncVisibleMidiNotes();
+  }, [inputMode, syncVisibleMidiNotes]);
 
   useEffect(() => {
     if (inputMode !== 'qwerty') {
@@ -1798,7 +2023,7 @@ export default function App() {
 
       const noteNumber = noteNumberForBinding(binding, qwertyOctaveShiftRef.current);
       qwertyPressedNotesRef.current.set(binding.key, noteNumber);
-      handleMidiMessage(createSyntheticNoteMessage('note_on', noteNumber, performance.now()));
+      handleNoteMessage(createSyntheticNoteMessage('note_on', noteNumber, performance.now()));
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -1814,7 +2039,7 @@ export default function App() {
 
       event.preventDefault();
       qwertyPressedNotesRef.current.delete(binding.key);
-      handleMidiMessage(createSyntheticNoteMessage('note_off', noteNumber, performance.now()));
+      handleNoteMessage(createSyntheticNoteMessage('note_off', noteNumber, performance.now()));
     };
 
     const handleBlur = () => {
@@ -1839,7 +2064,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       releaseAllQwertyNotes();
     };
-  }, [computerKeyboardAudioEnabled, handleMidiMessage, inputMode, releaseAllQwertyNotes]);
+  }, [computerKeyboardAudioEnabled, handleNoteMessage, inputMode, releaseAllQwertyNotes]);
 
   useEffect(() => {
     if (screen !== 'practice' || !phrase) {
@@ -2005,6 +2230,22 @@ export default function App() {
     }
   }, [commitProgress]);
 
+  const selectInputModePreference = useCallback((
+    inputModePreference: ProgressState['settings']['inputModePreference'],
+  ) => {
+    if (progressRef.current.settings.inputModePreference === inputModePreference) {
+      return;
+    }
+
+    commitProgress({
+      ...progressRef.current,
+      settings: {
+        ...progressRef.current.settings,
+        inputModePreference,
+      },
+    });
+  }, [commitProgress]);
+
   const toggleScaleGuideLabelMode = useCallback(() => {
     const nextScaleGuideLabelMode = progressRef.current.settings.scaleGuideLabelMode === 'degrees'
       ? 'note_names'
@@ -2131,7 +2372,7 @@ export default function App() {
       },
     };
 
-    if (!midiState.ready) {
+    if (progressRef.current.settings.inputModePreference === 'qwerty') {
       qwertyOctaveShiftRef.current = nextQwertyOctaveShift;
       setQwertyOctaveShift(nextQwertyOctaveShift);
     }
@@ -2142,7 +2383,7 @@ export default function App() {
     isRunningRef.current = false;
     setStreak(0);
     generateNextPhrase(next);
-  }, [commitProgress, generateNextPhrase, midiState.ready]);
+  }, [commitProgress, generateNextPhrase]);
 
   const selectCurriculumPreset = useCallback((curriculumPresetId: ProgressState['exerciseConfig']['curriculumPresetId']) => {
     commitExerciseConfig(
@@ -2667,6 +2908,7 @@ export default function App() {
         deckMasteryPct={deckMasteryPct}
         latestEvaluation={latestEvaluation}
         midiState={midiState}
+        micState={micState}
         inputMode={inputMode}
         canStepKey={allowedRoots.length > 1 && Boolean(progress.exerciseConfig.mode === 'scale' ? scalePrompt : phrase)}
         qwertyOctaveShift={qwertyOctaveShift}
@@ -2750,6 +2992,7 @@ export default function App() {
         <PracticeSettingsDrawer
           progress={progress}
           inputMode={inputMode}
+          micState={micState}
           potentialProgressionCount={potentialProgressionCount}
           potentialPhraseVariants={potentialPhraseVariants}
           authConfigured={isSupabaseConfigured()}
@@ -2769,6 +3012,7 @@ export default function App() {
           onToggleSelectedVoicing={toggleSelectedVoicing}
           onToggleScaleFamily={toggleScaleFamily}
           onToggleProgressionFamily={toggleProgressionFamily}
+          onSelectInputModePreference={selectInputModePreference}
           onToggleComputerKeyboardAudio={toggleComputerKeyboardAudio}
         />
       ) : null}

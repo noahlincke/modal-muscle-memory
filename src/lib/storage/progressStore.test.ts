@@ -23,6 +23,7 @@ describe('progressStore', () => {
     expect(progress.settings.staffClef).toBe('treble');
     expect(progress.settings.registerMin).toBe(60);
     expect(progress.settings.registerMax).toBe(84);
+    expect(progress.settings.inputModePreference).toBe('auto');
   });
 
   it('defaults missing saved rhythm settings to whole and half notes', () => {
@@ -74,6 +75,7 @@ describe('progressStore', () => {
     progress.exerciseConfig.improvisationAdvanceMode = 'footpedal_release';
     progress.exerciseConfig.chainMovement = 72;
     progress.settings.enableComputerKeyboardAudio = false;
+    progress.settings.inputModePreference = 'qwerty';
     progress.settings.practiceTrackingMode = 'play';
     progress.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'] = {
       attempts: 4,
@@ -100,6 +102,7 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.settings.enableComputerKeyboardAudio).toBe(false);
+    expect(loaded.settings.inputModePreference).toBe('qwerty');
     expect(loaded.settings.practiceTrackingMode).toBe('play');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1']).toBeDefined();
   });

@@ -1,4 +1,5 @@
-import { fingeredScaleOptionsForFamilies, getScaleFingering } from '../../content/scaleFingerings';
+import { deriveFamiliesForContentBlocks, deriveScaleModeScaleIdsForContentBlocks } from '../../content/curriculum';
+import { fingeredScaleOptionsForFamilies, getScaleFingering, hasScaleFingering } from '../../content/scaleFingerings';
 import { resolveIncludedKeyRoots } from '../../content/keys';
 import { getScaleOption } from '../../content/scales';
 import type {
@@ -185,8 +186,19 @@ interface ScaleTarget {
 
 export function listPlayableScaleTargets(config: ExerciseConfig): ScaleTarget[] {
   const roots = resolveIncludedKeyRoots(config.keySet, config.includedKeyRoots);
+  const scaleModeScaleIds = deriveScaleModeScaleIdsForContentBlocks(config.enabledContentBlockIds);
+  const derivedFamilyIds = deriveFamiliesForContentBlocks(config.enabledContentBlockIds).enabledScaleFamilyIds;
+  const hasCustomScaleFamilySelection = derivedFamilyIds.length !== config.enabledScaleFamilyIds.length
+    || derivedFamilyIds.some((familyId) => !config.enabledScaleFamilyIds.includes(familyId));
+  const resolveScaleOptions = (tonic: string) => (
+    hasCustomScaleFamilySelection || scaleModeScaleIds.length === 0
+      ? fingeredScaleOptionsForFamilies(config.enabledScaleFamilyIds, tonic, config.scaleOctaveSpan)
+      : scaleModeScaleIds
+        .filter((scaleId) => hasScaleFingering(scaleId, tonic, config.scaleOctaveSpan))
+        .map((scaleId) => getScaleOption(scaleId))
+  );
   return roots.flatMap((tonic) => (
-    fingeredScaleOptionsForFamilies(config.enabledScaleFamilyIds, tonic, config.scaleOctaveSpan)
+    resolveScaleOptions(tonic)
       .map((scale) => ({
         scaleId: scale.id,
         tonic,

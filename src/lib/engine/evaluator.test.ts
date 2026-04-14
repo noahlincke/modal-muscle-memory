@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildChordToken } from '../theory/chordToken';
-import { evaluateAttempt, evaluateFlashcardAttempt } from './evaluator';
+import {
+  evaluateAttempt,
+  evaluateFlashcardAttempt,
+  evaluateMicAttempt,
+  evaluateMicFlashcardAttempt,
+} from './evaluator';
 
 const token = buildChordToken({
   tonic: 'C',
@@ -91,5 +96,48 @@ describe('evaluateAttempt', () => {
 
     expect(result.success).toBe(true);
     expect(result.errors).toEqual([]);
+  });
+
+  it('lets mic input pass with one missing target tone', () => {
+    const result = evaluateMicAttempt({
+      targetToken: token,
+      detectedPitchClasses: ['C', 'E', 'B'],
+      expectedTimeMs: 1000,
+      submittedAtMs: 1040,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects mic input when it never lands a target chord tone', () => {
+    const result = evaluateMicAttempt({
+      targetToken: token,
+      detectedPitchClasses: ['F#', 'A'],
+      expectedTimeMs: 1000,
+      submittedAtMs: 1000,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors.some((error) => error.code === 'wrong_target_notes')).toBe(true);
+  });
+
+  it('scores mic flashcards against the best acceptable voicing', () => {
+    const closed = buildChordToken({
+      tonic: 'C',
+      lane: 'ionian',
+      roman: 'Imaj7',
+      voicingFamily: 'closed_7th',
+      midiRange: { min: 48, max: 72 },
+      maxVoiceMotionSemitones: 8,
+    });
+
+    const result = evaluateMicFlashcardAttempt({
+      acceptableTokens: [closed, token],
+      detectedPitchClasses: ['C', 'E', 'B'],
+      expectedTimeMs: 1000,
+      submittedAtMs: 1000,
+    });
+
+    expect(result.success).toBe(true);
   });
 });

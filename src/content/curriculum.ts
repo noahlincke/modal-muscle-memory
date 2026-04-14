@@ -4,6 +4,7 @@ import type {
   KeySetId,
   ModeLane,
   ProgressionFamilyTag,
+  ScaleId,
   ScaleFamilyId,
 } from '../types/music';
 import { rootsForKeySet } from './keys';
@@ -15,6 +16,7 @@ export interface ContentBlock {
   description: string;
   progressionIds: string[];
   scaleFamilyIds: ScaleFamilyId[];
+  scaleModeScaleIds: ScaleId[];
   progressionFamilyTags: ProgressionFamilyTag[];
 }
 
@@ -76,6 +78,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'guide_tone_rootless_circle',
     ],
     scaleFamilyIds: ['diatonic_modes'],
+    scaleModeScaleIds: ['ionian', 'dorian', 'mixolydian'],
     progressionFamilyTags: ['predominant', 'cadence', 'turnaround', 'circle_motion'],
   },
   {
@@ -91,6 +94,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'ionian_cadence_return',
     ],
     scaleFamilyIds: ['diatonic_modes', 'pentatonic_blues'],
+    scaleModeScaleIds: ['ionian'],
     progressionFamilyTags: ['scalar', 'cadence', 'turnaround', 'circle_motion', 'predominant'],
   },
   {
@@ -106,6 +110,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'aeolian_minor_turn',
     ],
     scaleFamilyIds: ['diatonic_modes', 'pentatonic_blues'],
+    scaleModeScaleIds: ['aeolian', 'harmonic_minor', 'melodic_minor'],
     progressionFamilyTags: ['minor_loop', 'cadence', 'turnaround'],
   },
   {
@@ -121,6 +126,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'double_borrowed_then_home',
     ],
     scaleFamilyIds: ['diatonic_modes', 'pentatonic_blues'],
+    scaleModeScaleIds: ['ionian', 'aeolian', 'harmonic_minor', 'melodic_minor', 'mixolydian'],
     progressionFamilyTags: ['borrowed', 'backdoor', 'cadence'],
   },
   {
@@ -135,6 +141,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'phrygian_pedal_turn',
     ],
     scaleFamilyIds: ['diatonic_modes'],
+    scaleModeScaleIds: ['dorian', 'phrygian', 'lydian', 'mixolydian'],
     progressionFamilyTags: ['modal_vamp', 'cadence', 'circle_motion'],
   },
   {
@@ -149,6 +156,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'phrygian_dominant_minor_gate',
     ],
     scaleFamilyIds: ['dominant_altered_family', 'melodic_minor_family', 'harmonic_minor_family'],
+    scaleModeScaleIds: ['phrygian_dominant', 'lydian_dominant', 'altered', 'whole_tone', 'half_whole_diminished'],
     progressionFamilyTags: ['secondary_dominant', 'dominant_cycle', 'cadence', 'backdoor'],
   },
   {
@@ -161,6 +169,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'locrian_natural_two_gate',
     ],
     scaleFamilyIds: ['harmonic_minor_family', 'melodic_minor_family'],
+    scaleModeScaleIds: ['harmonic_minor', 'melodic_minor', 'locrian_natural_2'],
     progressionFamilyTags: ['cadence', 'turnaround', 'minor_loop'],
   },
   {
@@ -173,6 +182,7 @@ export const CONTENT_BLOCKS: ContentBlock[] = [
       'whole_half_release',
     ],
     scaleFamilyIds: ['symmetric_family', 'dominant_altered_family'],
+    scaleModeScaleIds: ['whole_tone', 'half_whole_diminished', 'whole_half_diminished'],
     progressionFamilyTags: ['symmetric_color', 'dominant_cycle'],
   },
 ];
@@ -292,6 +302,15 @@ export function deriveFamiliesForContentBlocks(blockIds: ContentBlockId[]): {
     enabledScaleFamilyIds: [...new Set(blocks.flatMap((block) => block.scaleFamilyIds))],
     enabledProgressionFamilyTags: [...new Set(blocks.flatMap((block) => block.progressionFamilyTags))],
   };
+}
+
+export function deriveScaleModeScaleIdsForContentBlocks(blockIds: ContentBlockId[]): ScaleId[] {
+  return [...new Set(
+    [...new Set(blockIds)]
+      .map((blockId) => getContentBlock(blockId))
+      .filter((block): block is ContentBlock => block !== null)
+      .flatMap((block) => block.scaleModeScaleIds),
+  )];
 }
 
 export function curriculumPresetIdForLane(lane: ModeLane): CurriculumPresetId {
