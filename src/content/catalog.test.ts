@@ -8,7 +8,7 @@ import {
   PROGRESSION_FAMILY_OPTIONS,
   SCALE_FAMILY_OPTIONS,
 } from './curriculum';
-import { rootsForKeySet } from './keys';
+import { rootsForKeySet, rootsForKeySetForScale, rootsForKeySetInLane } from './keys';
 import { PROGRESSION_LIBRARY } from './progressions';
 import { SCALE_LIBRARY } from './scales';
 
@@ -65,6 +65,29 @@ describe('content catalog', () => {
     KEY_SET_OPTIONS.forEach((option) => {
       expect(rootsForKeySet(option.id).length).toBeGreaterThan(0);
     });
+  });
+
+  it('derives aeolian key sets from the minor key signature, not the relative major tonic list', () => {
+    const aeolianRoots = rootsForKeySetInLane('max_2_accidentals', 'aeolian');
+    const aeolianScaleRoots = rootsForKeySetForScale('max_2_accidentals', 'aeolian');
+
+    expect(aeolianRoots).toContain('A');
+    expect(aeolianRoots).toContain('E');
+    expect(aeolianRoots).toContain('G');
+    expect(aeolianRoots).not.toContain('C');
+    expect(aeolianScaleRoots).toEqual(aeolianRoots);
+  });
+
+  it('derives modal key sets from each mode signature rather than fixed ionian roots', () => {
+    const dorianRoots = rootsForKeySetInLane('max_2_accidentals', 'dorian');
+    const mixolydianRoots = rootsForKeySetInLane('max_2_accidentals', 'mixolydian');
+
+    expect(dorianRoots).toContain('D');
+    expect(dorianRoots).toContain('A');
+    expect(dorianRoots).not.toContain('F');
+    expect(mixolydianRoots).toContain('F');
+    expect(mixolydianRoots).toContain('A');
+    expect(mixolydianRoots).not.toContain('Bb');
   });
 
   it('derives matching family filters for the full library content blocks', () => {

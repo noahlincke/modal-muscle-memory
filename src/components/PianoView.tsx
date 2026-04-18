@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
 import { Midi } from 'tonal';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
-import type { ExerciseMode } from '../types/music';
+import type { ExerciseMode, ScalePrompt } from '../types/music';
 import { midiToPitchClass } from '../lib/theory/noteUtils';
 
 interface PianoViewProps {
@@ -11,6 +11,8 @@ interface PianoViewProps {
   minMidi: number;
   maxMidi: number;
   targetNotes: number[];
+  scalePrompt?: ScalePrompt | null;
+  completedScaleNoteIndices?: Set<number>;
   flashcardAcceptedPitchClasses?: string[];
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
@@ -40,8 +42,13 @@ interface GuideMarker {
 
 type MarkerKind = 'chord' | null;
 
+interface ScaleMarkerState {
+  backgroundColor: string;
+}
+
 const WHITE_KEY_WIDTH = 26;
 const BLACK_KEY_WIDTH = 16;
+const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-soft)';
 
 function isBlackKey(midi: number): boolean {
   const pc = midi % 12;
@@ -194,6 +201,8 @@ export function PianoView({
   minMidi,
   maxMidi,
   targetNotes,
+  scalePrompt = null,
+  completedScaleNoteIndices = new Set<number>(),
   flashcardAcceptedPitchClasses = [],
   chordTonePitchClasses,
   currentScalePitchClasses,
@@ -303,6 +312,29 @@ export function PianoView({
     () => new Set(nextGuideMarkers.map((marker) => marker.midi)),
     [nextGuideMarkers],
   );
+
+  const scaleMarkerStates = useMemo(() => {
+    if (mode !== 'scale' || !scalePrompt) {
+      return new Map<number, ScaleMarkerState>();
+    }
+
+    const markers = new Map<number, ScaleMarkerState>();
+
+    scalePrompt.noteSequence.forEach((note, noteIndex) => {
+      const isCompleted = completedScaleNoteIndices.has(noteIndex);
+      const backgroundColor = isCompleted
+        ? COMPLETED_SCALE_MARKER_COLOR
+        : intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi), highlightColor);
+      const previous = markers.get(note.midi);
+
+      if (!previous || previous.backgroundColor === COMPLETED_SCALE_MARKER_COLOR) {
+        markers.set(note.midi, { backgroundColor });
+      }
+    });
+
+    return markers;
+  }, [completedScaleNoteIndices, highlightColor, mode, scalePrompt]);
+
   function markerKindForMidi(midi: number): MarkerKind {
     return targetSet.has(midi) ? 'chord' : null;
   }
@@ -410,6 +442,7 @@ export function PianoView({
               {whiteKeys.map((key) => {
                 const active = activeNotes.has(key.midi);
                 const markerKind = markerKindForMidi(key.midi);
+                const scaleMarker = scaleMarkerStates.get(key.midi);
                 const guideStyle = keyGuideStyle(key.midi);
                 const keyClasses = [
                   'piano-key',
@@ -439,6 +472,9 @@ export function PianoView({
                         style={markerKind === 'chord' ? { backgroundColor: highlightColor } : undefined}
                       />
                     ) : null}
+                    {!markerKind && scaleMarker ? (
+                      <span className="key-marker" style={scaleMarker} />
+                    ) : null}
                     {/^(C)\d$/.test(key.noteName) ? <span className="key-label">{key.noteName}</span> : null}
                   </div>
                 );
@@ -449,6 +485,7 @@ export function PianoView({
               {blackKeys.map((key) => {
                 const active = activeNotes.has(key.midi);
                 const markerKind = markerKindForMidi(key.midi);
+                const scaleMarker = scaleMarkerStates.get(key.midi);
                 const guideStyle = keyGuideStyle(key.midi);
                 const keyClasses = [
                   'piano-key',
@@ -481,6 +518,9 @@ export function PianoView({
                         className={`key-marker ${markerKind}`.trim()}
                         style={markerKind === 'chord' ? { backgroundColor: highlightColor } : undefined}
                       />
+                    ) : null}
+                    {!markerKind && scaleMarker ? (
+                      <span className="key-marker" style={scaleMarker} />
                     ) : null}
                   </div>
                 );

@@ -118,6 +118,21 @@ describe('generateScalePrompt', () => {
     expect(regenerated.id).not.toBe(first.id);
   });
 
+  it('filters playable aeolian targets by the minor key signature accidentals', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'minor_foundations');
+    progress.exerciseConfig.keySet = 'max_2_accidentals';
+    progress.exerciseConfig.includedKeyRoots = [];
+
+    const targets = listPlayableScaleTargets(progress.exerciseConfig)
+      .filter((target) => target.scaleId === 'aeolian')
+      .map((target) => target.tonic);
+
+    expect(targets).toContain('A');
+    expect(targets).toContain('G');
+    expect(targets).not.toContain('C');
+  });
+
   it('lists playable scale targets from the current config', () => {
     const progress = createDefaultProgressState();
 
@@ -142,10 +157,10 @@ describe('generateScalePrompt', () => {
     ]);
 
     progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'minor_foundations');
-    expect(listPlayableScaleTargets(progress.exerciseConfig).filter((target) => target.tonic === 'C')).toEqual([
-      { scaleId: 'aeolian', tonic: 'C' },
-      { scaleId: 'harmonic_minor', tonic: 'C' },
-      { scaleId: 'melodic_minor', tonic: 'C' },
+    expect(listPlayableScaleTargets(progress.exerciseConfig).filter((target) => target.tonic === 'A')).toEqual([
+      { scaleId: 'aeolian', tonic: 'A' },
+      { scaleId: 'harmonic_minor', tonic: 'A' },
+      { scaleId: 'melodic_minor', tonic: 'A' },
     ]);
   });
 });

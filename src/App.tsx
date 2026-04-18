@@ -4,12 +4,19 @@ import {
   applyCurriculumPreset,
   CONTENT_BLOCKS,
   CURRICULUM_PRESETS,
+  deriveScaleModeScaleIdsForContentBlocks,
   deriveFamiliesForContentBlocks,
   getCurriculumPreset,
   KEY_SET_OPTIONS,
   SCALE_FAMILY_OPTIONS,
 } from './content/curriculum';
-import { normalizeIncludedKeyRoots, nextRootOnCircle, resolveIncludedKeyRoots, rootsForKeySet } from './content/keys';
+import {
+  normalizeIncludedKeyRoots,
+  nextRootOnCircle,
+  resolveIncludedKeyRootsForLane,
+  resolveIncludedKeyRootsForScale,
+  rootsForKeySet,
+} from './content/keys';
 import { getScaleOption } from './content/scales';
 import { PracticeLayout } from './components/PracticeLayout';
 import { PracticeSettingsDrawer } from './components/PracticeSettingsDrawer';
@@ -56,7 +63,7 @@ import {
   qwertyControlActionForKey,
   qwertyFriendlyRangeForOctaveShift,
 } from './lib/input/qwertyInput';
-import { MicCapture } from './lib/input/micCapture';
+import { MicCapture, type MicCaptureDebugEvent } from './lib/input/micCapture';
 import { filterMicOverlapPitchClasses } from './lib/input/micOverlap';
 import { resolveEffectiveInputMode } from './lib/input/inputMode';
 import { loadRemoteProgress, saveRemoteProgress } from './lib/auth/progressSync';
@@ -84,6 +91,8 @@ const FOOTPEDAL_RELEASE_WINDOW_MS = 650;
 const THEME_STORAGE_KEY = 'modal-muscle-memory-theme';
 const WALKTHROUGH_STORAGE_KEY = 'modal-muscle-memory-walkthrough-seen';
 const WALKTHROUGH_DEBUG_PARAM = 'walkthrough';
+const MIC_DEBUG_QUERY_PARAM = 'micdebug';
+const MIC_DEBUG_STORAGE_KEY = 'modal-muscle-memory-mic-debug';
 const WALKTHROUGH_STEPS: WalkthroughStep[] = ['exercise', 'key', 'content', 'settings'];
 const ALL_CONTENT_BLOCK_IDS = CONTENT_BLOCKS.map((block) => block.id);
 const NON_FULL_LIBRARY_PRESETS = CURRICULUM_PRESETS.filter((preset) => preset.id !== 'full_library');
@@ -191,7 +200,28 @@ function walkthroughDebugEnabled(): boolean {
   }
 
   const value = new URLSearchParams(window.location.search).get(WALKTHROUGH_DEBUG_PARAM);
+  return truthyDebugValue(value);
+}
+
+function truthyDebugValue(value: string | null): boolean {
+  if (value === null) {
+    return false;
+  }
+
   return value === '1' || value === 'true' || value === 'debug';
+}
+
+function micDebugEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const searchValue = new URLSearchParams(window.location.search).get(MIC_DEBUG_QUERY_PARAM);
+  if (truthyDebugValue(searchValue)) {
+    return true;
+  }
+
+  return truthyDebugValue(window.localStorage.getItem(MIC_DEBUG_STORAGE_KEY));
 }
 
 function loadInitialWalkthroughStep(): WalkthroughStep | null {
@@ -539,6 +569,7 @@ function flashcardAttemptStillPossible(
 export default function App() {
   const supabase = useMemo(() => getSupabaseClient(), []);
   const walkthroughDebug = useMemo(() => walkthroughDebugEnabled(), []);
+  const micDebugTraceEnabled = useMemo(() => micDebugEnabled(), []);
   const [screen, setScreen] = useState<Screen>('practice');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => loadInitialTheme());
@@ -977,9 +1008,27 @@ export default function App() {
     setMidiNotes(new Set(
       progressRef.current.exerciseConfig.mode === 'scale'
         ? scaleCaptureRef.current.activeNoteNumbers
-        : captureRef.current.activeNoteNumbers,
+      : captureRef.current.activeNoteNumbers,
     ));
   }, [inputMode]);
+  const keyboardActiveNotes = useMemo(
+    () => (inputMode === 'mic' ? new Set<number>() : midiNotes),
+    [inputMode, midiNotes],
+  );
+
+  useEffect(() => {
+    if (!micDebugTraceEnabled) {
+      micCaptureRef.current.setDebugLogger(null);
+      return;
+    }
+
+    micCaptureRef.current.setDebugLogger((event: MicCaptureDebugEvent) => {
+      console.debug('[mic-chord-debug]', event.type, {
+        t: Math.round(event.timestamp),
+        ...event.payload,
+      });
+    });
+  }, [micDebugTraceEnabled]);
 
   const reconcileCarryoverDisplay = useCallback(() => {
     if (!suppressCarryoverDisplayRef.current) {
@@ -1147,15 +1196,16 @@ export default function App() {
         return;
       }
 
-      const allowedRoots = resolveIncludedKeyRoots(
+      const scaleRoots = resolveIncludedKeyRootsForScale(
         progressRef.current.exerciseConfig.keySet,
         progressRef.current.exerciseConfig.includedKeyRoots,
+        scalePrompt.scaleId,
       );
-      if (allowedRoots.length <= 1) {
+      if (scaleRoots.length <= 1) {
         return;
       }
 
-      const nextRoot = nextRootOnCircle(scalePrompt.tonic, allowedRoots, direction);
+      const nextRoot = nextRootOnCircle(scalePrompt.tonic, scaleRoots, direction);
       if (!nextRoot || nextRoot === scalePrompt.tonic) {
         return;
       }
@@ -1172,9 +1222,10 @@ export default function App() {
       return;
     }
 
-    const allowedRoots = resolveIncludedKeyRoots(
+    const allowedRoots = resolveIncludedKeyRootsForLane(
       progressRef.current.exerciseConfig.keySet,
       progressRef.current.exerciseConfig.includedKeyRoots,
+      workingPhrase.lane,
     );
     if (allowedRoots.length <= 1) {
       return;
@@ -1534,11 +1585,13 @@ export default function App() {
           ...token.requiredPitchClasses,
           ...token.optionalPitchClasses,
         ]);
+    const preserveAllowedMicOverlap = isImprovisationMode || previousTokenIdRef.current === token.id;
     const detectedPitchClasses = isMicInput
       ? filterMicOverlapPitchClasses(
         rawDetectedPitchClasses,
         allowedMicPitchClasses,
         activeMicOverlapPitchClasses(micOverlapRef.current, submittedAtMs),
+        { preserveAllowedOverlap: preserveAllowedMicOverlap },
       )
       : rawDetectedPitchClasses;
 
@@ -1878,18 +1931,26 @@ export default function App() {
       return;
     }
 
-    const { stableEvent, activeChanged } = micCaptureRef.current.ingest(observation);
+    const isScaleMode = progressRef.current.exerciseConfig.mode === 'scale';
+    const { stableEvent, activeChanged, submission } = isScaleMode
+      ? micCaptureRef.current.ingestScale(observation)
+      : micCaptureRef.current.ingestChord(
+        observation,
+        pendingAdvanceRef.current ? [] : currentRequiredPitchClasses(),
+      );
     if (activeChanged) {
       syncVisibleMidiNotes();
     }
 
-    if (!stableEvent) {
-      return;
+    if (stableEvent) {
+      syncVisibleMidiNotes();
     }
 
-    syncVisibleMidiNotes();
+    if (isScaleMode) {
+      if (!stableEvent) {
+        return;
+      }
 
-    if (progressRef.current.exerciseConfig.mode === 'scale') {
       if (!scalePrompt) {
         return;
       }
@@ -1925,18 +1986,29 @@ export default function App() {
       return;
     }
 
-    const submission = micCaptureRef.current.maybeBuildSubmission(
-      pendingAdvanceRef.current ? [] : currentRequiredPitchClasses(),
-      stableEvent.timestamp,
-    );
-
     if (submission) {
+      if (micDebugTraceEnabled) {
+        const workingPhrase = phraseRef.current;
+        const eventIndex = currentEventIndexRef.current;
+        const event = workingPhrase?.events[eventIndex] ?? null;
+        const token = event ? workingPhrase?.tokensById[event.chordTokenId] ?? null : null;
+        console.debug('[mic-chord-debug] app_submission', {
+          t: Math.round(submission.timestamp),
+          eventIndex,
+          tokenId: token?.id ?? null,
+          requiredPitchClasses: token?.requiredPitchClasses ?? [],
+          optionalPitchClasses: token?.optionalPitchClasses ?? [],
+          detectedPitchClasses: submission.pitchClasses,
+          reason: submission.reason,
+          pendingAdvanceBlocked: Boolean(pendingAdvanceRef.current),
+        });
+      }
       submitAttempt(submission.notes, submission.timestamp, submission.reason, {
         inputSource: 'mic',
         detectedPitchClasses: submission.pitchClasses,
       });
     }
-  }, [currentRequiredPitchClasses, generateNextPhrase, inputMode, scalePrompt, submitAttempt, syncVisibleMidiNotes]);
+  }, [currentRequiredPitchClasses, generateNextPhrase, inputMode, micDebugTraceEnabled, scalePrompt, submitAttempt, syncVisibleMidiNotes]);
 
   const releaseAllQwertyNotes = useCallback(() => {
     if (qwertyPressedNotesRef.current.size === 0) {
@@ -2427,7 +2499,19 @@ export default function App() {
   const selectCurrentKey = useCallback((root: string) => {
     const currentPhrase = phraseRef.current;
     const currentConfig = progressRef.current.exerciseConfig;
-    const includedRoots = resolveIncludedKeyRoots(currentConfig.keySet, currentConfig.includedKeyRoots);
+    const scaleFallbackId = deriveScaleModeScaleIdsForContentBlocks(currentConfig.enabledContentBlockIds)[0] ?? null;
+    const includedRoots = currentConfig.mode === 'scale'
+      ? (() => {
+        const scaleId = scalePrompt?.scaleId ?? scaleFallbackId;
+        return scaleId
+          ? resolveIncludedKeyRootsForScale(currentConfig.keySet, currentConfig.includedKeyRoots, scaleId)
+          : resolveIncludedKeyRootsForLane(currentConfig.keySet, currentConfig.includedKeyRoots, currentConfig.lane);
+      })()
+      : resolveIncludedKeyRootsForLane(
+        currentConfig.keySet,
+        currentConfig.includedKeyRoots,
+        currentPhrase?.lane ?? currentConfig.lane,
+      );
     const alreadyIncluded = includedRoots.includes(root);
     const nextConfig: ProgressState['exerciseConfig'] = alreadyIncluded
       ? currentConfig
@@ -2452,7 +2536,7 @@ export default function App() {
       progressionOverrideId: currentPhrase?.progressionId,
       voicingFamilyOverride: firstToken?.voicingFamily,
     });
-  }, [commitProgress, generateSelectedPhrase]);
+  }, [commitProgress, generateSelectedPhrase, scalePrompt?.scaleId]);
 
   const selectMode = useCallback((mode: ProgressState['exerciseConfig']['mode']) => {
     const previousPracticeTrackingMode = progressRef.current.settings.practiceTrackingMode;
@@ -2771,10 +2855,33 @@ export default function App() {
     };
   }, []);
 
-  const allowedRoots = useMemo(
-    () => resolveIncludedKeyRoots(progress.exerciseConfig.keySet, progress.exerciseConfig.includedKeyRoots),
-    [progress.exerciseConfig.includedKeyRoots, progress.exerciseConfig.keySet],
-  );
+  const allowedRoots = useMemo(() => {
+    if (progress.exerciseConfig.mode === 'scale') {
+      const fallbackScaleId = deriveScaleModeScaleIdsForContentBlocks(progress.exerciseConfig.enabledContentBlockIds)[0] ?? null;
+      const scaleId = scalePrompt?.scaleId ?? fallbackScaleId;
+      if (scaleId) {
+        return resolveIncludedKeyRootsForScale(
+          progress.exerciseConfig.keySet,
+          progress.exerciseConfig.includedKeyRoots,
+          scaleId,
+        );
+      }
+    }
+
+    return resolveIncludedKeyRootsForLane(
+      progress.exerciseConfig.keySet,
+      progress.exerciseConfig.includedKeyRoots,
+      phrase?.lane ?? progress.exerciseConfig.lane,
+    );
+  }, [
+    phrase?.lane,
+    progress.exerciseConfig.enabledContentBlockIds,
+    progress.exerciseConfig.includedKeyRoots,
+    progress.exerciseConfig.keySet,
+    progress.exerciseConfig.lane,
+    progress.exerciseConfig.mode,
+    scalePrompt?.scaleId,
+  ]);
   const layoutOptionAvailability = useMemo(() => {
     const config = progress.exerciseConfig;
     const withConfig = (nextConfig: ProgressState['exerciseConfig']): boolean => countMatchingProgressions(nextConfig) > 0;
@@ -2901,7 +3008,7 @@ export default function App() {
         completedScaleNoteIndices={completedScaleNoteIndices}
         currentScaleNoteIndex={currentScaleNoteIndex}
         theme={theme}
-        activeNotes={midiNotes}
+        activeNotes={keyboardActiveNotes}
         minMidi={keyboardRange.min}
         maxMidi={keyboardRange.max}
         streak={streak}

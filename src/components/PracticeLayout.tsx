@@ -1349,11 +1349,13 @@ export function PracticeLayout({
           >
             {inputMode === 'qwerty' ? (
               <QwertyView
-                tonic={phrase?.tonic ?? null}
+                tonic={scalePrompt?.tonic ?? phrase?.tonic ?? null}
                 mode={exerciseMode}
                 clef={clef}
                 octaveShift={qwertyOctaveShift}
                 targetNotes={keyboardTargetNotes}
+                scalePrompt={scalePrompt}
+                completedScaleNoteIndices={completedScaleNoteIndices}
                 flashcardAcceptedPitchClasses={flashcardAcceptedPitchClasses}
                 chordTonePitchClasses={chordTonePitchClasses}
                 currentScalePitchClasses={currentScalePitchClasses}
@@ -1365,12 +1367,14 @@ export function PracticeLayout({
               />
             ) : (
               <PianoView
-                tonic={phrase?.tonic ?? null}
+                tonic={scalePrompt?.tonic ?? phrase?.tonic ?? null}
                 mode={exerciseMode}
                 clef={clef}
                 minMidi={minMidi}
                 maxMidi={maxMidi}
                 targetNotes={keyboardTargetNotes}
+                scalePrompt={scalePrompt}
+                completedScaleNoteIndices={completedScaleNoteIndices}
                 flashcardAcceptedPitchClasses={flashcardAcceptedPitchClasses}
                 chordTonePitchClasses={chordTonePitchClasses}
                 currentScalePitchClasses={currentScalePitchClasses}

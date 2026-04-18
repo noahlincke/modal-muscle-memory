@@ -251,12 +251,32 @@ export function NotationStrip({
       const containerWidth = Math.max(containerRef.current.clientWidth, 960);
       const horizontalPadding = 52;
       const rightEdgePadding = 44;
-      const width = Math.max(containerWidth, (barCount * 244) + horizontalPadding + rightEdgePadding);
+      const width = containerWidth;
+      const availableContentWidth = width - horizontalPadding - rightEdgePadding;
       const height = 306;
       const staveY = 96;
       const fingerLabelOffset = scalePrompt.hand === 'lh' ? 34 : -30;
-      const barWidth = Math.max(220, Math.floor((width - horizontalPadding - rightEdgePadding) / barCount));
-      const contentStartX = Math.max(32, Math.floor((width - (barWidth * barCount) - rightEdgePadding) / 2));
+      const barWeights = Array.from({ length: barCount }, (_, barIndex) => {
+        const noteSlice = notes.slice(barIndex * 4, (barIndex + 1) * 4);
+        const accidentalCount = noteSlice.reduce((count, note) => count + countAccidentals(note.spelling), 0);
+        const noteDensityWeight = Math.max(0, noteSlice.length - 1) * 0.03;
+        const accidentalWeight = accidentalCount * 0.08;
+        const clefAndTimeSignatureWeight = barIndex === 0 ? 0.34 : 0;
+        return 1 + noteDensityWeight + accidentalWeight + clefAndTimeSignatureWeight;
+      });
+      const totalWeight = barWeights.reduce((sum, weight) => sum + weight, 0);
+      const barWidths = barWeights.map((weight) => Math.floor((availableContentWidth * weight) / totalWeight));
+      const assignedWidth = barWidths.reduce((sum, barWidth) => sum + barWidth, 0);
+      barWidths[barWidths.length - 1] += availableContentWidth - assignedWidth;
+      const contentStartX = Math.max(32, Math.floor((width - availableContentWidth - rightEdgePadding) / 2));
+      const barStartXs = barWidths.reduce<number[]>((positions, _barWidth, index) => {
+        if (index === 0) {
+          positions.push(contentStartX);
+        } else {
+          positions.push(positions[index - 1] + barWidths[index - 1]);
+        }
+        return positions;
+      }, []);
 
       renderer.resize(width, height);
       const context = renderer.getContext();
@@ -264,7 +284,8 @@ export function NotationStrip({
       context.setStrokeStyle(notationInk);
 
       for (let bar = 0; bar < barCount; bar += 1) {
-        const x = contentStartX + (bar * barWidth);
+        const barWidth = barWidths[bar];
+        const x = barStartXs[bar];
         const stave = new Stave(x, staveY, barWidth - 12);
         if (bar === 0) {
           stave.addClef(clef).addTimeSignature('4/4');
@@ -321,7 +342,7 @@ export function NotationStrip({
 
         const voice = new Voice({ numBeats: 4, beatValue: 4 });
         voice.addTickables(renderedNotes.map((entry) => entry.staveNote));
-        new Formatter().joinVoices([voice]).format([voice], Math.max(190, barWidth - (bar === 0 ? 150 : 56)));
+        new Formatter().joinVoices([voice]).format([voice], Math.max(188, barWidth - (bar === 0 ? 154 : 58)));
         voice.draw(context, stave);
 
         renderedNotes.forEach((entry) => {

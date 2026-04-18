@@ -198,11 +198,11 @@ function evaluateMicPitchClasses(
   const matchedRequired = required.filter((pitchClass) => playedPitchClasses.includes(pitchClass));
   const missingRequired = required.filter((pitchClass) => !playedPitchClasses.includes(pitchClass));
   const wrongPitchClasses = playedPitchClasses.filter((pitchClass) => !allowed.has(pitchClass));
-  const minimumRequiredMatches = Math.max(1, required.length - 1);
+  const minimumRequiredMatches = 1;
   const hasAnyTargetTone = matchedRequired.length > 0;
   const structurallyAccepted = hasAnyTargetTone
     && matchedRequired.length >= minimumRequiredMatches
-    && wrongPitchClasses.length <= 1;
+    && wrongPitchClasses.length <= 2;
 
   const errors: ScoringError[] = [];
 
@@ -217,13 +217,13 @@ function evaluateMicPitchClasses(
       code: 'wrong_target_notes',
       message: 'Detect at least one target chord tone to advance.',
     });
-  } else if (missingRequired.length > 1) {
+  } else if (missingRequired.length >= required.length) {
     errors.push({
       code: 'missing_required_tone',
-      message: `Missing too many target tones: ${missingRequired.join(', ')}`,
+      message: `Missing all target tones except overlap: ${missingRequired.join(', ')}`,
     });
   }
-  if (wrongPitchClasses.length > 1) {
+  if (wrongPitchClasses.length > 2) {
     errors.push({
       code: 'wrong_pitch_class',
       message: `Too many unrelated tones detected: ${wrongPitchClasses.join(', ')}`,
@@ -231,8 +231,8 @@ function evaluateMicPitchClasses(
   }
 
   const requiredRatio = matchedRequired.length / Math.max(required.length, 1);
-  const wrongPenalty = Math.max(0, wrongPitchClasses.length - 1) * 0.12;
-  const missingPenalty = Math.max(0, missingRequired.length - 1) * 0.12;
+  const wrongPenalty = Math.max(0, wrongPitchClasses.length - 2) * 0.08;
+  const missingPenalty = Math.max(0, missingRequired.length - minimumRequiredMatches) * 0.05;
   const timingPenalty = bucket === 'on_time' ? 0 : 0.05;
   const accuracy = Math.max(0, Math.min(1, requiredRatio - wrongPenalty - missingPenalty - timingPenalty));
 

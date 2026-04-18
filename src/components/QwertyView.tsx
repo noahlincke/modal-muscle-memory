@@ -1,7 +1,7 @@
 import { type CSSProperties, useMemo } from 'react';
 import { Midi } from 'tonal';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
-import type { ExerciseMode } from '../types/music';
+import type { ExerciseMode, ScalePrompt } from '../types/music';
 import {
   noteNumberForBinding,
   QWERTY_NOTE_BINDINGS,
@@ -14,6 +14,8 @@ interface QwertyViewProps {
   clef: 'treble' | 'bass';
   octaveShift: number;
   targetNotes: number[];
+  scalePrompt?: ScalePrompt | null;
+  completedScaleNoteIndices?: Set<number>;
   flashcardAcceptedPitchClasses?: string[];
   chordTonePitchClasses: string[];
   currentScalePitchClasses: string[];
@@ -39,8 +41,13 @@ interface GuideMarker {
   label: string;
 }
 
+interface ScaleMarkerState {
+  backgroundColor: string;
+}
+
 const WHITE_KEY_WIDTH = 42;
 const BLACK_KEY_WIDTH = 28;
+const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-soft)';
 
 function withAlpha(hexColor: string, alpha: number): string {
   const match = hexColor.match(/^#([0-9a-f]{6})$/i);
@@ -179,6 +186,8 @@ export function QwertyView({
   clef,
   octaveShift,
   targetNotes,
+  scalePrompt = null,
+  completedScaleNoteIndices = new Set<number>(),
   flashcardAcceptedPitchClasses = [],
   chordTonePitchClasses,
   currentScalePitchClasses,
@@ -289,6 +298,27 @@ export function QwertyView({
     () => new Set(nextGuideMarkers.map((marker) => marker.midi)),
     [nextGuideMarkers],
   );
+  const scaleMarkerStates = useMemo(() => {
+    if (mode !== 'scale' || !scalePrompt) {
+      return new Map<number, ScaleMarkerState>();
+    }
+
+    const markers = new Map<number, ScaleMarkerState>();
+
+    scalePrompt.noteSequence.forEach((note, noteIndex) => {
+      const isCompleted = completedScaleNoteIndices.has(noteIndex);
+      const backgroundColor = isCompleted
+        ? COMPLETED_SCALE_MARKER_COLOR
+        : intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi), highlightColor);
+      const previous = markers.get(note.midi);
+
+      if (!previous || previous.backgroundColor === COMPLETED_SCALE_MARKER_COLOR) {
+        markers.set(note.midi, { backgroundColor });
+      }
+    });
+
+    return markers;
+  }, [completedScaleNoteIndices, highlightColor, mode, scalePrompt]);
 
   const stageWidth = `${whiteKeys.length * WHITE_KEY_WIDTH}px`;
 
@@ -380,6 +410,7 @@ export function QwertyView({
           {whiteKeys.map((key) => {
             const active = activeNotes.has(key.midi);
             const hasTarget = targetSet.has(key.midi);
+            const scaleMarker = scaleMarkerStates.get(key.midi);
             const guideStyle = keyGuideStyle(key.midi);
             const keyClasses = [
               'piano-key',
@@ -409,6 +440,9 @@ export function QwertyView({
                     style={{ backgroundColor: highlightColor }}
                   />
                 ) : null}
+                {!hasTarget && scaleMarker ? (
+                  <span className="key-marker" style={scaleMarker} />
+                ) : null}
                 <span className="qwerty-keycap">{key.qwertyLabel}</span>
                 <span className="qwerty-note-label">{key.noteName}</span>
               </div>
@@ -420,6 +454,7 @@ export function QwertyView({
           {blackKeys.map((key) => {
             const active = activeNotes.has(key.midi);
             const hasTarget = targetSet.has(key.midi);
+            const scaleMarker = scaleMarkerStates.get(key.midi);
             const guideStyle = keyGuideStyle(key.midi);
             const keyClasses = [
               'piano-key',
@@ -452,6 +487,9 @@ export function QwertyView({
                     className="key-marker chord"
                     style={{ backgroundColor: highlightColor }}
                   />
+                ) : null}
+                {!hasTarget && scaleMarker ? (
+                  <span className="key-marker" style={scaleMarker} />
                 ) : null}
                 <span className="qwerty-keycap">{key.qwertyLabel}</span>
                 <span className="qwerty-note-label">{key.noteName}</span>

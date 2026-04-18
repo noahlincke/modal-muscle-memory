@@ -33,11 +33,11 @@ export interface CurriculumPreset {
 
 export const KEY_SET_OPTIONS: Array<{ id: KeySetId; label: string; description: string }> = [
   { id: 'c_only', label: 'C Only', description: 'C only.' },
-  { id: 'max_1_accidental', label: 'Up to 1 Accidental', description: 'C, G, F.' },
-  { id: 'max_2_accidentals', label: 'Up to 2 Accidentals', description: 'C, G, F, D, Bb.' },
-  { id: 'max_3_accidentals', label: 'Up to 3 Accidentals', description: 'C, G, F, D, Bb, A, Eb.' },
-  { id: 'max_4_accidentals', label: 'Up to 4 Accidentals', description: 'C, G, F, D, Bb, A, Eb, E, Ab.' },
-  { id: 'max_5_accidentals', label: 'Up to 5 Accidentals', description: 'C, G, F, D, Bb, A, Eb, E, Ab, B, Db.' },
+  { id: 'max_1_accidental', label: 'Up to 1 Accidental', description: 'Content-aware keys with signatures up to 1 accidental.' },
+  { id: 'max_2_accidentals', label: 'Up to 2 Accidentals', description: 'Content-aware keys with signatures up to 2 accidentals.' },
+  { id: 'max_3_accidentals', label: 'Up to 3 Accidentals', description: 'Content-aware keys with signatures up to 3 accidentals.' },
+  { id: 'max_4_accidentals', label: 'Up to 4 Accidentals', description: 'Content-aware keys with signatures up to 4 accidentals.' },
+  { id: 'max_5_accidentals', label: 'Up to 5 Accidentals', description: 'Content-aware keys with signatures up to 5 accidentals.' },
   { id: 'all_keys', label: 'All Keys', description: 'All 12 keys: C, G, F, D, Bb, A, Eb, E, Ab, B, Db, Gb.' },
 ];
 

@@ -1,4 +1,5 @@
-import type { KeySetId } from '../types/music';
+import { pitchClassToSemitone } from '../lib/theory/noteUtils';
+import type { KeySetId, ModeLane, ScaleId } from '../types/music';
 
 export const ALL_KEY_ROOTS = ['C', 'G', 'F', 'D', 'Bb', 'A', 'Eb', 'E', 'Ab', 'B', 'Db', 'Gb'] as const;
 export const CIRCLE_OF_FIFTHS_CLOCKWISE = ['C', 'G', 'D', 'A', 'E', 'B', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F'] as const;
@@ -36,6 +37,90 @@ const KEY_SIGNATURE_ACCIDENTAL: Record<string, { symbol: 'flat' | 'sharp'; count
   Cb: { symbol: 'flat', count: 7 },
 };
 
+const KEY_SET_ACCIDENTAL_LIMIT: Partial<Record<KeySetId, number>> = {
+  c_only: 0,
+  max_1_accidental: 1,
+  max_2_accidentals: 2,
+  max_3_accidentals: 3,
+  max_4_accidentals: 4,
+  max_5_accidentals: 5,
+};
+
+const SEMITONE_TO_SIGNATURE_ROOT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'] as const;
+
+const LANE_SIGNATURE_ROOT_OFFSETS: Record<ModeLane, number[]> = {
+  ionian: [0],
+  aeolian: [3],
+  ionian_aeolian_mixture: [0, 3],
+  dorian: [10],
+  mixolydian: [5],
+  lydian: [7],
+  phrygian: [8],
+};
+
+const SCALE_SIGNATURE_ROOT_OFFSETS: Record<ScaleId, number[]> = {
+  ionian: [0],
+  dorian: [10],
+  phrygian: [8],
+  lydian: [7],
+  mixolydian: [5],
+  aeolian: [3],
+  locrian: [1],
+  major_pentatonic: [0],
+  minor_pentatonic: [3],
+  major_blues: [0],
+  minor_blues: [3],
+  harmonic_minor: [3],
+  phrygian_dominant: [8],
+  melodic_minor: [3],
+  dorian_b2: [1],
+  lydian_augmented: [11],
+  lydian_dominant: [10],
+  mixolydian_b6: [8],
+  locrian_natural_2: [7],
+  altered: [5],
+  whole_tone: [5],
+  half_whole_diminished: [5],
+  whole_half_diminished: [3],
+};
+
+function accidentalLimitForKeySet(keySet: KeySetId): number | null {
+  if (keySet === 'all_keys') {
+    return null;
+  }
+
+  return KEY_SET_ACCIDENTAL_LIMIT[keySet] ?? null;
+}
+
+function signatureRootForOffset(tonic: string, semitoneOffset: number): string {
+  const semitone = (pitchClassToSemitone(tonic) + semitoneOffset + 12) % 12;
+  return SEMITONE_TO_SIGNATURE_ROOT[semitone];
+}
+
+function keyComplexityForSignatureRoot(signatureRoot: string): number {
+  return KEY_COMPLEXITY[signatureRoot] ?? 6;
+}
+
+function rootsForComplexityLimit(limit: number, complexityForRoot: (root: string) => number): string[] {
+  return ALL_KEY_ROOTS.filter((root) => complexityForRoot(root) <= limit);
+}
+
+export function keyComplexityForLane(root: string, lane: ModeLane): number {
+  const signatureOffsets = LANE_SIGNATURE_ROOT_OFFSETS[lane] ?? [0];
+
+  return Math.min(...signatureOffsets.map((offset) => (
+    keyComplexityForSignatureRoot(signatureRootForOffset(root, offset))
+  )));
+}
+
+export function keyComplexityForScale(root: string, scaleId: ScaleId): number {
+  const signatureOffsets = SCALE_SIGNATURE_ROOT_OFFSETS[scaleId] ?? [0];
+
+  return Math.min(...signatureOffsets.map((offset) => (
+    keyComplexityForSignatureRoot(signatureRootForOffset(root, offset))
+  )));
+}
+
 export function rootsForKeySet(keySet: KeySetId): string[] {
   switch (keySet) {
     case 'c_only':
@@ -58,6 +143,24 @@ export function rootsForKeySet(keySet: KeySetId): string[] {
   }
 }
 
+export function rootsForKeySetInLane(keySet: KeySetId, lane: ModeLane): string[] {
+  const limit = accidentalLimitForKeySet(keySet);
+  if (limit === null) {
+    return rootsForKeySet(keySet);
+  }
+
+  return rootsForComplexityLimit(limit, (root) => keyComplexityForLane(root, lane));
+}
+
+export function rootsForKeySetForScale(keySet: KeySetId, scaleId: ScaleId): string[] {
+  const limit = accidentalLimitForKeySet(keySet);
+  if (limit === null) {
+    return rootsForKeySet(keySet);
+  }
+
+  return rootsForComplexityLimit(limit, (root) => keyComplexityForScale(root, scaleId));
+}
+
 export function normalizeIncludedKeyRoots(roots: string[] | undefined, fallback: string[] = []): string[] {
   if (!Array.isArray(roots)) {
     return [...fallback];
@@ -74,6 +177,30 @@ export function resolveIncludedKeyRoots(keySet: KeySetId, includedKeyRoots: stri
   }
 
   return rootsForKeySet(keySet);
+}
+
+export function resolveIncludedKeyRootsForLane(
+  keySet: KeySetId,
+  includedKeyRoots: string[] | undefined,
+  lane: ModeLane,
+): string[] {
+  if (keySet === 'custom') {
+    return normalizeIncludedKeyRoots(includedKeyRoots, []);
+  }
+
+  return rootsForKeySetInLane(keySet, lane);
+}
+
+export function resolveIncludedKeyRootsForScale(
+  keySet: KeySetId,
+  includedKeyRoots: string[] | undefined,
+  scaleId: ScaleId,
+): string[] {
+  if (keySet === 'custom') {
+    return normalizeIncludedKeyRoots(includedKeyRoots, []);
+  }
+
+  return rootsForKeySetForScale(keySet, scaleId);
 }
 
 export function keySignatureForRoot(root: string): { symbol: 'flat' | 'sharp'; count: number } | null {

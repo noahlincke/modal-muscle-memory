@@ -282,6 +282,21 @@ describe('phraseGenerator', () => {
     expect(secondPhrase.tonic).not.toBe(firstPhrase.tonic);
   });
 
+  it('filters minor-foundation phrase tonics by aeolian key signature complexity', () => {
+    const progress = createDefaultProgressState();
+    progress.exerciseConfig = applyCurriculumPreset(progress.exerciseConfig, 'minor_foundations');
+    progress.exerciseConfig.keySet = 'max_2_accidentals';
+    progress.exerciseConfig.includedKeyRoots = rootsForKeySet('max_2_accidentals');
+
+    const tonics = listPotentialPhraseVariants(progress)
+      .filter((variant) => variant.progression.lane === 'aeolian')
+      .map((variant) => variant.tonic);
+
+    expect(tonics).toContain('A');
+    expect(tonics).toContain('G');
+    expect(tonics).not.toContain('C');
+  });
+
   it('reports zero matching progressions when the selected filters have no overlap', () => {
     const progress = createDefaultProgressState();
     progress.exerciseConfig.enabledContentBlockIds = ['major_foundations'];

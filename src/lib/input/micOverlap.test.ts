@@ -10,11 +10,20 @@ describe('filterMicOverlapPitchClasses', () => {
     )).toEqual(['A']);
   });
 
-  it('keeps overlap tones when they are also valid for the new target', () => {
+  it('drops shared overlap tones by default even if they are valid for the new target', () => {
     expect(filterMicOverlapPitchClasses(
       ['C', 'E', 'G'],
       ['C', 'F', 'A'],
       ['C', 'E'],
+    )).toEqual(['G']);
+  });
+
+  it('can preserve shared overlap tones when the caller opts in', () => {
+    expect(filterMicOverlapPitchClasses(
+      ['C', 'E', 'G'],
+      ['C', 'F', 'A'],
+      ['C', 'E'],
+      { preserveAllowedOverlap: true },
     )).toEqual(['C', 'G']);
   });
 

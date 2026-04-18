@@ -1,5 +1,5 @@
 import { getContentBlock } from '../../content/curriculum';
-import { circleDistance, resolveIncludedKeyRoots } from '../../content/keys';
+import { circleDistance, resolveIncludedKeyRootsForLane } from '../../content/keys';
 import { PROGRESSION_LIBRARY } from '../../content/progressions';
 import { RHYTHM_CELLS } from '../../content/rhythmCells';
 import { scaleFamilyForScaleId } from '../../content/scales';
@@ -869,8 +869,8 @@ export function generatePhrase({
     throw new Error('No progressions match the current practice filter.');
   }
 
-  const roots = resolveIncludedKeyRoots(config.keySet, config.includedKeyRoots);
-  if (roots.length === 0 && !tonicOverride) {
+  const configuredLaneRoots = resolveIncludedKeyRootsForLane(config.keySet, config.includedKeyRoots, config.lane);
+  if (configuredLaneRoots.length === 0 && !tonicOverride) {
     throw new Error('No keys are included in the current key set.');
   }
 
@@ -887,7 +887,7 @@ export function generatePhrase({
     ? pickImprovementTarget(
       progressions,
       progress,
-      roots,
+      configuredLaneRoots,
       activeVoicings,
       config.chainMovement,
       random,
@@ -916,11 +916,17 @@ export function generatePhrase({
     throw new Error('The requested progression is not available for the current practice filter.');
   }
   const lane = progression.lane;
+  const roots = resolveIncludedKeyRootsForLane(config.keySet, config.includedKeyRoots, lane);
+  if (roots.length === 0 && !tonicOverride) {
+    throw new Error('No keys are included for the selected progression lane.');
+  }
   const tonic = tonicOverride
     ?? (chainSource
       ? chooseChainedTonic(roots, chainSource.tonic, config.chainMovement, random)
       : null)
-    ?? improvementTarget?.tonic
+    ?? (improvementTarget && roots.includes(improvementTarget.tonic)
+      ? improvementTarget.tonic
+      : null)
     ?? (roots.length > 0 ? choose(roots, random) : 'C');
   const previousPhraseLastEvent = chainSource ? chainSource.events[chainSource.events.length - 1] : null;
   const previousPhraseLastToken = previousPhraseLastEvent
@@ -1033,8 +1039,8 @@ function generateFlashcardPhrase({
     throw new Error('No progressions match the current practice filter.');
   }
 
-  const roots = resolveIncludedKeyRoots(config.keySet, config.includedKeyRoots);
-  if (roots.length === 0 && !tonicOverride) {
+  const configuredLaneRoots = resolveIncludedKeyRootsForLane(config.keySet, config.includedKeyRoots, config.lane);
+  if (configuredLaneRoots.length === 0 && !tonicOverride) {
     throw new Error('No keys are included in the current key set.');
   }
 
@@ -1048,7 +1054,7 @@ function generateFlashcardPhrase({
     ? pickImprovementTarget(
       progressions,
       progress,
-      roots,
+      configuredLaneRoots,
       activeVoicings,
       config.chainMovement,
       random,
@@ -1079,6 +1085,10 @@ function generateFlashcardPhrase({
     throw new Error('The requested progression is not available for the current practice filter.');
   }
 
+  const roots = resolveIncludedKeyRootsForLane(config.keySet, config.includedKeyRoots, progression.lane);
+  if (roots.length === 0 && !tonicOverride) {
+    throw new Error('No keys are included for the selected flashcard lane.');
+  }
   const tonic = chooseFlashcardTonic(
     roots,
     previousPhrase,
@@ -1155,17 +1165,15 @@ export function listPotentialPhraseVariants(progress: ProgressState): PotentialP
     return [];
   }
 
-  const roots = resolveIncludedKeyRoots(
-    progress.exerciseConfig.keySet,
-    progress.exerciseConfig.includedKeyRoots,
-  );
-  if (roots.length === 0) {
-    return [];
-  }
   const variants: PotentialPhraseVariant[] = [];
 
   progressions.forEach((progression) => {
     const voicings = progressionVoicingPool(progression, activeVoicings);
+    const roots = resolveIncludedKeyRootsForLane(
+      progress.exerciseConfig.keySet,
+      progress.exerciseConfig.includedKeyRoots,
+      progression.lane,
+    );
 
     roots.forEach((tonic) => {
       voicings.forEach((voicingFamily) => {

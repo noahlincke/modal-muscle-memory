@@ -52,9 +52,9 @@ export function detectPitchObservation(
   timestamp: number,
   options: DetectPitchOptions = {},
 ): PitchObservation {
-  const minFrequency = options.minFrequency ?? 65;
+  const minFrequency = options.minFrequency ?? 50;
   const maxFrequency = options.maxFrequency ?? 1200;
-  const minRms = options.minRms ?? 0.01;
+  const minRms = options.minRms ?? 0.0032;
   const rms = rootMeanSquare(samples);
 
   if (rms < minRms) {
@@ -79,7 +79,7 @@ export function detectPitchObservation(
     }
   }
 
-  if (bestLag < 0 || bestCorrelation < 0.68) {
+  if (bestLag < 0 || bestCorrelation < 0.54) {
     return {
       timestamp,
       rms,
