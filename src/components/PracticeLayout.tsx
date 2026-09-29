@@ -413,7 +413,10 @@ export function PracticeLayout({
   return (
     <section className="practice-screen">
       <header className="practice-topbar">
-        <span className="topbar-wordmark">Modal Muscle Memory</span>
+        <span className="topbar-wordmark">
+          <span className="topbar-wordmark-full">Modal Muscle Memory</span>
+          <span className="topbar-wordmark-compact" aria-hidden="true">MMM</span>
+        </span>
 
         <nav className="topbar-nav" aria-label="Exercise navigator">
           <button

@@ -3,9 +3,12 @@
   display: flex;
   min-width: 0;
   min-height: 0;
-  align-self: center;
+  align-self: start;
   align-items: center;
   justify-content: center;
+  /* Match the notation slot's top padding so the circle aligns with the top
+     of the staff rather than the raw grid row. */
+  padding-top: var(--s-6);
 }
 
 .circle-panel {
