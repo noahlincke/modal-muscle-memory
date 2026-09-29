@@ -59,6 +59,12 @@ function signedPoints(delta: number | null): string {
   return `${points > 0 ? '+' : ''}${points} pts`;
 }
 
+// Music text renders with superscript quality marks (V⁷, ii⁷) and en-dash
+// separators per the design spec.
+function romanSummary(progression: ProgressionDefinition): string {
+  return progressionRomanSummary(progression).replace(/ -> /g, ' – ').replace(/7/g, '⁷');
+}
+
 function formatDuration(ms: number): string {
   const totalMinutes = Math.max(1, Math.round(ms / 60000));
   const hours = Math.floor(totalMinutes / 60);
@@ -214,6 +220,20 @@ function practiceBlockLabel(block: PracticeBlock): string {
   return `${presetLabel ?? humanizeSnakeCase(block.lane)} · ${modeLabel}`;
 }
 
+function romanFromTokenId(tokenId: string | undefined): string {
+  const roman = tokenId?.split(':')[2];
+  if (roman) {
+    return roman.replace(/7/g, '⁷');
+  }
+  // Shortened ids ("ionian:I") fall back to the degree segment, then the raw value.
+  return tokenId?.split(':')[1] ?? tokenId ?? 'Unknown';
+}
+
+function transitionLabel(key: string): string {
+  const [fromTokenId, toTokenId] = key.includes('->') ? key.split('->') : key.split('>');
+  return `${romanFromTokenId(fromTokenId)} – ${romanFromTokenId(toTokenId)}`;
+}
+
 export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: ProgressScreenProps) {
   const [expandedBadgeIds, setExpandedBadgeIds] = useState<string[]>([]);
   const practiceBlocks = groupPracticeBlocks(progress.sessionHistory);
@@ -267,17 +287,12 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
   const weakestTransitions = Object.entries(progress.edgeMastery)
     .sort((a, b) => a[1].accuracyEwma - b[1].accuracyEwma)
     .slice(0, 4)
-    .map(([transition, stat]) => {
-      const [fromTokenId, toTokenId] = transition.split('->');
-      const fromRoman = fromTokenId?.split(':')[2] ?? 'Unknown';
-      const toRoman = toTokenId?.split(':')[2] ?? 'Unknown';
-      return {
-        id: transition,
-        label: `${fromRoman} -> ${toRoman}`,
-        accuracy: stat.accuracyEwma,
-        attempts: stat.attempts,
-      };
-    });
+    .map(([transition, stat]) => ({
+      id: transition,
+      label: transitionLabel(transition),
+      accuracy: stat.accuracyEwma,
+      attempts: stat.attempts,
+    }));
 
   const voicingSummaries = Object.entries(progress.nodeMastery)
     .reduce<Record<string, { sum: number; count: number }>>((result, [tokenId, stat]) => {
@@ -306,258 +321,218 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
 
   return (
     <section className="progress-screen">
-      <header className="progress-header">
-        <div className="progress-header-copy">
-          <span className="eyebrow">Progress</span>
-          <h1>Practice Profile</h1>
-        </div>
-        <div className="progress-header-actions">
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-          <button type="button" onClick={onBack}>Back to Practice</button>
-        </div>
-      </header>
+      <div className="progress-body">
+        <header className="progress-header">
+          <h1 className="progress-title">Practice Profile</h1>
+          <div className="progress-header-actions">
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            <button type="button" className="progress-quiet-button" onClick={onBack}>Back to Practice</button>
+          </div>
+        </header>
 
-      <section className="progress-hero">
-        <div className="progress-hero-summary">
-          <div>
-            <span className="eyebrow">Last Practice</span>
+        <div className="progress-summary">
+          <div className="progress-summary-item">
             <strong>{formatRelativeDate(progress.lastSessionAt)}</strong>
+            <span>Last practice</span>
           </div>
-          <p>
-            {progress.lastSessionAt
-              ? `Most recent practice block ended ${formatDateTime(progress.lastSessionAt)}.`
-              : 'Complete a phrase to start building your practice record.'}
-          </p>
-        </div>
-
-        <div className="progress-stat-grid progress-stat-grid-clean">
-          <article className="progress-stat-card accent-warm">
-            <span className="eyebrow">Total Time Practiced</span>
+          <div className="progress-summary-item">
             <strong>{formatDuration(totalPracticeMs)}</strong>
-            <p>{totalPhrases} phrases completed</p>
-          </article>
-
-          <article className="progress-stat-card accent-cool">
-            <span className="eyebrow">Consistency Streak</span>
+            <span>Total time · {totalPhrases} phrases</span>
+          </div>
+          <div className="progress-summary-item">
             <strong>{consistencyStreakWeeks} {consistencyStreakWeeks === 1 ? 'week' : 'weeks'}</strong>
-            <p>{thisWeekCount} of {SESSIONS_PER_WEEK_TARGET} practice blocks this week</p>
-          </article>
-
-          <article className="progress-stat-card accent-success">
-            <span className="eyebrow">Mastered Progressions</span>
+            <span>Streak · {thisWeekCount} of {SESSIONS_PER_WEEK_TARGET} blocks this week</span>
+          </div>
+          <div className="progress-summary-item">
             <strong>{masteredProgressionCount} / {progressionSummaries.length}</strong>
-            <p>Rolling {MASTERY_MIN_ATTEMPTS}-rep window at {pct(MASTERY_TARGET_ACCURACY)} or higher</p>
-          </article>
-
-          <article className="progress-stat-card accent-neutral">
-            <span className="eyebrow">Curriculum Badges</span>
+            <span>Progressions mastered</span>
+          </div>
+          <div className="progress-summary-item">
             <strong>{completedCurriculaCount} / {contentBlockSummaries.length}</strong>
-            <p>Content blocks fully mastered</p>
-          </article>
-        </div>
-      </section>
-
-      <section className="progress-explainer-grid">
-        <article className="progress-explainer-card">
-          <span className="eyebrow">Mastery</span>
-          <h2>{MASTERY_MIN_ATTEMPTS} clean reps, not one lucky pass</h2>
-          <p>
-            A progression is mastered when its last {MASTERY_MIN_ATTEMPTS} completed phrases average at least {pct(MASTERY_TARGET_ACCURACY)}.
-            If that rolling average drops, mastery drops too.
-          </p>
-        </article>
-
-        <article className="progress-explainer-card">
-          <span className="eyebrow">Streak</span>
-          <h2>Keep two practice blocks alive each week</h2>
-          <p>
-            Log {SESSIONS_PER_WEEK_TARGET} practice blocks per week to extend the consistency streak.
-            You are at {thisWeekCount} of {SESSIONS_PER_WEEK_TARGET} this week.
-          </p>
-        </article>
-      </section>
-
-      <section className="progress-section">
-        <div className="progress-section-heading">
-          <div>
-            <span className="eyebrow">Curriculum Mastery</span>
-            <h2>Badge the library block by block.</h2>
+            <span>Content blocks completed</span>
           </div>
-          <p>{completedCurriculaCount} of {contentBlockSummaries.length} content blocks fully mastered.</p>
         </div>
-        <div className="progress-badge-grid">
-          {contentBlockSummaries.map((summary) => (
-            <button
-              type="button"
-              key={summary.block.id}
-              className={`progress-badge-card ${summary.masteredCount === summary.total ? 'complete' : summary.attemptedCount > 0 ? 'active' : 'fresh'} ${expandedBadgeIds.includes(summary.block.id) ? 'expanded' : ''}`.trim()}
-              aria-expanded={expandedBadgeIds.includes(summary.block.id)}
-              onClick={() => toggleBadgeDetails(summary.block.id)}
-            >
-              <div className="progress-badge-topline">
-                <span className="eyebrow">{summary.masteredCount === summary.total ? 'Mastered' : summary.attemptedCount > 0 ? 'In Progress' : 'Fresh'}</span>
-                <strong>{summary.masteredCount}/{summary.total}</strong>
-              </div>
-              <h3>{summary.block.label}</h3>
-              <p>{summary.block.description}</p>
-              <div className="progress-badge-meter" aria-hidden="true">
-                <span style={{ width: `${summary.completionRatio * 100}%` }} />
-              </div>
-              <div className="progress-badge-meta">
-                <span>{summary.attemptedCount} attempted</span>
-                <span>{expandedBadgeIds.includes(summary.block.id) ? 'Hide details' : `${summary.masteredCount} mastered`}</span>
-              </div>
-              {expandedBadgeIds.includes(summary.block.id) ? (
-                <div className="progress-badge-details">
-                  {summary.summaries.map((progression) => (
-                    <div
-                      key={progression.progression.id}
-                      className={`progress-subbadge ${progression.mastered ? 'mastered' : progression.attempts > 0 ? 'attempted' : 'fresh'}`.trim()}
-                    >
-                      <div className="progress-subbadge-topline">
-                        <strong>{progressionSubtitle(progression.progression.id)}</strong>
-                        <span>{progression.mastered ? 'Mastered' : progression.attempts > 0 ? 'In Progress' : 'Fresh'}</span>
-                      </div>
-                      <span className="progress-subbadge-roman">{progressionRomanSummary(progression.progression)}</span>
-                      <span>
-                        {progression.attempts > 0
-                          ? `${progression.attempts} reps · ${pct(progression.recentAccuracy)} recent accuracy`
-                          : 'No reps yet'}
+
+        <p className="progress-lede">
+          A progression is mastered when its last {MASTERY_MIN_ATTEMPTS} completed phrases average {pct(MASTERY_TARGET_ACCURACY)}
+          {' '}or better; if that rolling average slips, mastery slips with it. Two practice blocks a week keep the streak alive.
+        </p>
+
+        <section className="progress-section">
+          <div className="progress-section-heading">
+            <h2>Content blocks</h2>
+            <span className="progress-section-note">{completedCurriculaCount} of {contentBlockSummaries.length} fully mastered</span>
+          </div>
+          <div className="progress-block-list">
+            {contentBlockSummaries.map((summary) => {
+              const expanded = expandedBadgeIds.includes(summary.block.id);
+              const complete = summary.masteredCount === summary.total;
+              const status = complete ? 'Mastered' : summary.attemptedCount > 0 ? 'In progress' : 'Fresh';
+              return (
+                <div key={summary.block.id} className="progress-block">
+                  <button
+                    type="button"
+                    className="progress-block-row"
+                    aria-expanded={expanded}
+                    onClick={() => toggleBadgeDetails(summary.block.id)}
+                  >
+                    <span className="progress-block-copy">
+                      <strong>{summary.block.label}</strong>
+                      <span>{summary.block.description}</span>
+                    </span>
+                    <span className="progress-block-status">
+                      <span className={`progress-tag${complete ? ' is-mastered' : ''}`}>{status}</span>
+                      <span className="progress-meter" aria-hidden="true">
+                        <span style={{ width: `${Math.round(summary.completionRatio * 100)}%` }} />
                       </span>
+                      <strong className="progress-number">{summary.masteredCount}/{summary.total}</strong>
+                    </span>
+                  </button>
+                  {expanded ? (
+                    <div className="progress-block-details">
+                      {summary.summaries.map((progression) => (
+                        <div key={progression.progression.id} className="progress-block-detail-row">
+                          <span className="progress-list-copy">
+                            <strong>{romanSummary(progression.progression)}</strong>
+                            <span>{progressionSubtitle(progression.progression.id)}</span>
+                          </span>
+                          <span className="progress-block-detail-value">
+                            {progression.mastered
+                              ? <span className="progress-detail-state is-mastered">Mastered</span>
+                              : progression.attempts > 0
+                                ? <span className="progress-number">{progression.attempts} reps · {pct(progression.recentAccuracy)}</span>
+                                : <span className="progress-detail-state">No reps yet</span>}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : null}
                 </div>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="progress-detail-grid progress-detail-grid-clean">
-        <article className="progress-panel">
-          <div className="progress-panel-heading">
-            <div>
-              <span className="eyebrow">Target Next</span>
-              <h2>Progressions still slipping</h2>
-            </div>
+              );
+            })}
           </div>
-          <ul className="progress-rank-list">
-            {weakestProgressions.length === 0 ? <li className="progress-empty">No weak progressions right now.</li> : null}
-            {weakestProgressions.map((summary) => (
-              <li key={summary.progression.id}>
-                <div>
-                  <strong>{progressionRomanSummary(summary.progression)}</strong>
-                  <span>{summary.contentBlockLabel} · {progressionSubtitle(summary.progression.id)}</span>
-                </div>
-                <div className="progress-rank-metrics">
-                  <strong>{pct(summary.recentAccuracy)}</strong>
-                  <span>{summary.attempts} reps</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </article>
+        </section>
 
-        <article className="progress-panel">
-          <div className="progress-panel-heading">
-            <div>
-              <span className="eyebrow">Relish The Gain</span>
-              <h2>Biggest recent jumps</h2>
-            </div>
+        <section className="progress-section">
+          <div className="progress-section-heading">
+            <h2>Focus areas</h2>
           </div>
-          <ul className="progress-rank-list">
-            {biggestGains.length === 0 ? <li className="progress-empty">Not enough history yet to rank gains.</li> : null}
-            {biggestGains.map((summary) => (
-              <li key={summary.progression.id}>
-                <div>
-                  <strong>{progressionRomanSummary(summary.progression)}</strong>
-                  <span>{summary.contentBlockLabel} · {progressionSubtitle(summary.progression.id)}</span>
-                </div>
-                <div className="progress-rank-metrics positive">
-                  <strong>{signedPoints(summary.improvement)}</strong>
-                  <span>{summary.lastPracticedAt ? formatDate(summary.lastPracticedAt) : 'Recently'}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </article>
+          <div className="progress-columns">
+            <div className="progress-column">
+              <h3>Slipping progressions</h3>
+              <ul className="progress-list">
+                {weakestProgressions.length === 0 ? <li className="progress-empty">No weak progressions right now.</li> : null}
+                {weakestProgressions.map((summary) => (
+                  <li key={summary.progression.id}>
+                    <span className="progress-list-copy">
+                      <strong>{romanSummary(summary.progression)}</strong>
+                      <span>{summary.contentBlockLabel} · {progressionSubtitle(summary.progression.id)}</span>
+                    </span>
+                    <span className="progress-list-metrics">
+                      <strong className="progress-number">{pct(summary.recentAccuracy)}</strong>
+                      <span>{summary.attempts} reps</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-        <article className="progress-panel">
-          <div className="progress-panel-heading">
-            <div>
-              <span className="eyebrow">Weak Spots</span>
-              <h2>Transitions and voicings</h2>
+            <div className="progress-column">
+              <h3>Biggest jumps</h3>
+              <ul className="progress-list">
+                {biggestGains.length === 0 ? <li className="progress-empty">Not enough history yet to rank gains.</li> : null}
+                {biggestGains.map((summary) => (
+                  <li key={summary.progression.id}>
+                    <span className="progress-list-copy">
+                      <strong>{romanSummary(summary.progression)}</strong>
+                      <span>{summary.contentBlockLabel} · {progressionSubtitle(summary.progression.id)}</span>
+                    </span>
+                    <span className="progress-list-metrics">
+                      <strong className="progress-number is-good">{signedPoints(summary.improvement)}</strong>
+                      <span>{summary.lastPracticedAt ? formatDate(summary.lastPracticedAt) : 'Recently'}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-          <div className="progress-subpanel-grid">
-            <div>
+
+            <div className="progress-column">
               <h3>Weakest transitions</h3>
-              <ul className="progress-rank-list compact">
+              <ul className="progress-list">
                 {weakestTransitions.length === 0 ? <li className="progress-empty">No transition data yet.</li> : null}
                 {weakestTransitions.map((transition) => (
                   <li key={transition.id}>
-                    <div>
+                    <span className="progress-list-copy">
                       <strong>{transition.label}</strong>
                       <span>{transition.attempts} tracked attempts</span>
-                    </div>
-                    <div className="progress-rank-metrics">
-                      <strong>{pct(transition.accuracy)}</strong>
-                    </div>
+                    </span>
+                    <span className="progress-list-metrics">
+                      <strong className="progress-number">{pct(transition.accuracy)}</strong>
+                    </span>
                   </li>
                 ))}
               </ul>
             </div>
-            <div>
+
+            <div className="progress-column">
               <h3>Weakest voicings</h3>
-              <ul className="progress-rank-list compact">
+              <ul className="progress-list">
                 {weakestVoicings.length === 0 ? <li className="progress-empty">No voicing data yet.</li> : null}
                 {weakestVoicings.map((voicing) => (
                   <li key={voicing.voicing}>
-                    <div>
+                    <span className="progress-list-copy">
                       <strong>{voicing.voicing}</strong>
                       <span>{voicing.count} tracked shapes</span>
-                    </div>
-                    <div className="progress-rank-metrics">
-                      <strong>{pct(voicing.accuracy)}</strong>
-                    </div>
+                    </span>
+                    <span className="progress-list-metrics">
+                      <strong className="progress-number">{pct(voicing.accuracy)}</strong>
+                    </span>
                   </li>
                 ))}
               </ul>
             </div>
           </div>
-        </article>
-      </section>
+        </section>
 
-      <article className="progress-panel progress-session-panel">
-        <div className="progress-panel-heading">
-          <div>
-            <span className="eyebrow">Practice Log</span>
-            <h2>Recent practice blocks</h2>
+        <section className="progress-section">
+          <div className="progress-section-heading">
+            <h2>Recent sessions</h2>
+            {practiceBlocks.length > 0 ? (
+              <span className="progress-section-note">Last {Math.min(practiceBlocks.length, 10)} practice blocks</span>
+            ) : null}
           </div>
-        </div>
-        <ul className="progress-session-list clean">
-          {practiceBlocks.length === 0 ? <li className="progress-empty">No practice history yet.</li> : null}
-          {practiceBlocks.slice(-10).reverse().map((block) => {
-            const blockDurationMs = Math.max(0, new Date(block.endedAt).getTime() - new Date(block.startedAt).getTime());
-            return (
-              <li key={`${block.id}:${block.endedAt}`}>
-                <div>
-                  <strong>{formatDateTime(block.endedAt)}</strong>
-                  <span>{practiceBlockLabel(block)}</span>
-                </div>
-                <div>
-                  <strong>{block.phraseCount}</strong>
-                  <span>phrases</span>
-                </div>
-                <div>
-                  <strong>{formatDuration(blockDurationMs)}</strong>
-                  <span>practice time</span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </article>
+          {practiceBlocks.length === 0 ? (
+            <p className="progress-empty">No practice history yet.</p>
+          ) : (
+            <table className="progress-session-table">
+              <thead>
+                <tr>
+                  <th scope="col">Session</th>
+                  <th scope="col" className="num">Phrases</th>
+                  <th scope="col" className="num">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {practiceBlocks.slice(-10).reverse().map((block) => {
+                  const blockDurationMs = Math.max(0, new Date(block.endedAt).getTime() - new Date(block.startedAt).getTime());
+                  return (
+                    <tr key={`${block.id}:${block.endedAt}`}>
+                      <td>
+                        <span className="progress-session-copy">
+                          <strong>{formatDateTime(block.endedAt)}</strong>
+                          <span>{practiceBlockLabel(block)}</span>
+                        </span>
+                      </td>
+                      <td className="num"><span className="progress-number">{block.phraseCount}</span></td>
+                      <td className="num"><span className="progress-number">{formatDuration(blockDurationMs)}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+      </div>
     </section>
   );
 }
