@@ -44,7 +44,6 @@ Local-first React + TypeScript web app for adaptive, phrase-based keyboard pract
 ## Run
 
 ```bash
-cd modal-muscle-memory-trainer
 npm install
 npm run dev
 ```
@@ -70,7 +69,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=...
 
 `VITE_SUPABASE_ANON_KEY` is still accepted as a fallback, but the app now prefers the publishable key name to match the current Supabase dashboard.
 
-Apply [supabase/schema.sql](/Users/nlincke/Desktop/noahlincke_web/pianokeybr/modal-muscle-memory-trainer/supabase/schema.sql) in the Supabase SQL editor.
+Apply [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL editor.
 
 Without those vars, the app stays fully local and continues using browser storage only.
 
@@ -78,6 +77,7 @@ Without those vars, the app stays fully local and continues using browser storag
 
 - `npm run build:mmm` builds the app for hosting at subpath `/mmm/`.
 - `npm run build:deploy:mmm` runs the `/mmm/` build and writes SPA rewrite rules to `dist/.htaccess`.
+- `scripts/deploy-mmm.sh` builds for `/mmm/` and rsyncs `dist/` to noah.lincke.org (`--no-build` to skip the build).
 - `npm run start:passenger` starts the included `app.cjs` server for Passenger-based Node hosting.
 
 ## Module Layout
