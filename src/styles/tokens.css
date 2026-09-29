@@ -1,128 +1,134 @@
-:root {
-  --bg: #f4f0e8;
-  --bg-2: #efe5d4;
-  --bg-glow-warm: rgba(255, 213, 142, 0.66);
-  --bg-glow-cool: rgba(196, 228, 255, 0.92);
-  --panel: #fffaf2;
-  --shell: rgba(255, 250, 242, 0.92);
-  --surface: #fffaf2;
-  --surface-strong: #ffffff;
-  --surface-muted: #fcf5e8;
-  --notation-surface: #fffdf9;
-  --notation-ink: #1f2830;
-  --notation-completed-ink: rgba(31, 40, 45, 0.35);
-  --ink: #1f2830;
-  --ink-soft: #5c6470;
-  --line: #cbb89a;
-  --line-soft: rgba(203, 184, 154, 0.8);
-  --accent: #0454d5;
-  --accent-2: #f97316;
-  --ok: #157f5a;
-  --bad: #bb2f3b;
-  --ring: #2a3448;
-  --button-bg: #ffffff;
-  --button-hover-border: #0454d5;
-  --button-active-border: #003c9a;
-  --shadow: rgba(49, 35, 14, 0.08);
-  --overlay: rgba(31, 40, 48, 0.34);
-  --piano-lane-start: #faf4e8;
-  --piano-lane-end: #f6eedf;
-  --input-bg: #ffffff;
-  --circle-shell-stroke: #d9cab1;
-  --circle-interval-stroke: #d5d2cc;
-  --circle-node-fill: #ede3d2;
-  --circle-node-stroke: #c2ad8a;
-  --circle-label-ink: #232d39;
-  --circle-subtle-ink: #6f7480;
-  --circle-dot-stroke: rgba(27, 32, 45, 0.35);
+/* Design tokens: "engraved score". See the redesign spec; nothing outside this file hardcodes colour. */
 
-  font-family: 'IBM Plex Sans', sans-serif;
+:root {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --surface: #fbfaf6;
+  --surface-2: #ece8df;
+  --line: #ddd7ca;
+  --line-strong: #c4bcab;
+  --ink: #1d1b17;
+  --ink-2: #57524a;
+  --ink-3: #8a8377;
+  --signal: #d97706;
+  --good: #2e7d5b;
+  --bad: #b42318;
+  --focus: #d97706;
+  --scrim: rgba(29, 27, 23, 0.32);
+  --shadow-pop: 0 1px 2px rgba(29, 27, 23, 0.06), 0 8px 24px rgba(29, 27, 23, 0.12);
+
+  --key-white: #fcfbf8;
+  --key-white-shade: #e4dfd4;
+  --key-black: #1b1a18;
+  --key-black-highlight: #3a3834;
+
+  /* Scale degrees: existing hue families, equal lightness so no degree shouts. */
+  --deg-l: 0.6;
+  --deg-c: 0.14;
+  --deg-1: oklch(var(--deg-l) var(--deg-c) 270);
+  --deg-b2: oklch(var(--deg-l) var(--deg-c) 125);
+  --deg-2: oklch(var(--deg-l) var(--deg-c) 320);
+  --deg-b3: oklch(var(--deg-l) var(--deg-c) 165);
+  --deg-3: oklch(var(--deg-l) var(--deg-c) 25);
+  --deg-4: oklch(var(--deg-l) var(--deg-c) 240);
+  --deg-s4: oklch(var(--deg-l) var(--deg-c) 95);
+  --deg-5: oklch(var(--deg-l) var(--deg-c) 295);
+  --deg-b6: oklch(var(--deg-l) var(--deg-c) 145);
+  --deg-6: oklch(var(--deg-l) var(--deg-c) 350);
+  --deg-b7: oklch(var(--deg-l) var(--deg-c) 210);
+  --deg-7: oklch(var(--deg-l) var(--deg-c) 60);
+
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  --font-serif: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+
+  --r-sm: 4px;
+  --r-md: 8px;
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --control-h: 32px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  font-family: var(--font-ui);
   color: var(--ink);
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.5;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
+@media (pointer: coarse) {
+  :root {
+    --control-h: 44px;
+  }
+}
+
 [data-theme='dark'] {
-  --bg: #111925;
-  --bg-2: #1a2431;
-  --bg-glow-warm: rgba(255, 151, 71, 0.16);
-  --bg-glow-cool: rgba(90, 149, 255, 0.22);
-  --panel: #182231;
-  --shell: rgba(15, 22, 31, 0.88);
-  --surface: #192330;
-  --surface-strong: #202c3a;
-  --surface-muted: #1b2735;
-  --notation-surface: #f4efe6;
-  --notation-ink: #253244;
-  --notation-completed-ink: rgba(60, 75, 96, 0.45);
-  --ink: #e6edf6;
-  --ink-soft: #9eacbd;
-  --line: #3a4b61;
-  --line-soft: rgba(72, 92, 119, 0.82);
-  --accent: #7ba8ff;
-  --accent-2: #ffad5e;
-  --ok: #48cc97;
-  --bad: #ff7f8a;
-  --ring: #f2e7d5;
-  --button-bg: #1a2431;
-  --button-hover-border: #7ba8ff;
-  --button-active-border: #9dbbff;
-  --shadow: rgba(0, 0, 0, 0.34);
-  --overlay: rgba(5, 8, 14, 0.62);
-  --piano-lane-start: #231f1a;
-  --piano-lane-end: #1c1814;
-  --input-bg: #16202c;
-  --circle-shell-stroke: #48586e;
-  --circle-interval-stroke: #3d4c61;
-  --circle-node-fill: #324154;
-  --circle-node-stroke: #60738d;
-  --circle-label-ink: #edf3fa;
-  --circle-subtle-ink: #a9b7c8;
-  --circle-dot-stroke: rgba(232, 241, 250, 0.28);
+  color-scheme: dark;
+  --bg: #121110;
+  --surface: #1a1917;
+  --surface-2: #242220;
+  --line: #2f2d2a;
+  --line-strong: #45423d;
+  --ink: #ece8e0;
+  --ink-2: #a9a398;
+  --ink-3: #6f6a62;
+  --signal: #f59e0b;
+  --good: #4caf84;
+  --bad: #f0584a;
+  --focus: #f59e0b;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+  --key-white: #e9e5dc;
+  --key-white-shade: #b9b3a7;
+  --key-black: #0c0b0a;
+  --key-black-highlight: #2c2a27;
+  --deg-l: 0.72;
+  --deg-c: 0.13;
 }
 
-[data-theme='focus'] {
-  --bg: #0b1119;
-  --bg-2: #111923;
-  --bg-glow-warm: rgba(255, 141, 56, 0.12);
-  --bg-glow-cool: rgba(96, 142, 255, 0.16);
-  --panel: #121a25;
-  --shell: rgba(8, 13, 19, 0.92);
-  --surface: #141d28;
-  --surface-strong: #1a2431;
-  --surface-muted: #141d28;
-  --notation-surface: #0d141c;
-  --notation-ink: #aebfd2;
-  --notation-completed-ink: rgba(124, 146, 171, 0.42);
-  --ink: #edf4fb;
-  --ink-soft: #9fb0c5;
-  --line: #33465d;
-  --line-soft: rgba(61, 79, 103, 0.85);
-  --accent: #84adff;
-  --accent-2: #ffb56d;
-  --ok: #52d69f;
-  --bad: #ff8893;
-  --ring: #f3ebde;
-  --button-bg: #16202c;
-  --button-hover-border: #84adff;
-  --button-active-border: #a8c4ff;
-  --shadow: rgba(0, 0, 0, 0.42);
-  --overlay: rgba(4, 8, 12, 0.7);
-  --piano-lane-start: #17130f;
-  --piano-lane-end: #120f0c;
-  --input-bg: #16202c;
-  --circle-shell-stroke: #46596f;
-  --circle-interval-stroke: #3a4a5e;
-  --circle-node-fill: #2b394b;
-  --circle-node-stroke: #5c708a;
-  --circle-label-ink: #eff6fd;
-  --circle-subtle-ink: #a9b9cb;
-  --circle-dot-stroke: rgba(232, 241, 250, 0.26);
-}
-
-:root {
+/*
+ * LEGACY ALIASES: old token names mapped onto the new palette so unmigrated
+ * rules keep working. Each redesign worker removes uses of these from the files
+ * it owns; the final pass deletes this block. Do not use these in new rules.
+ */
+:root,
+[data-theme='dark'] {
+  --bg-2: var(--bg);
+  --bg-glow-warm: transparent;
+  --bg-glow-cool: transparent;
+  --panel: var(--surface);
+  --shell: var(--bg);
+  --surface-strong: var(--surface);
+  --surface-muted: var(--surface-2);
+  --notation-surface: var(--bg);
+  --notation-ink: var(--ink);
+  --notation-completed-ink: var(--ink-3);
+  --ink-soft: var(--ink-2);
+  --line-soft: var(--line);
+  --accent: var(--ink);
+  --accent-2: var(--signal);
+  --ok: var(--good);
+  --ring: var(--focus);
+  --button-bg: var(--surface);
+  --button-hover-border: var(--line-strong);
+  --button-active-border: var(--ink);
+  --shadow: transparent;
+  --overlay: var(--scrim);
+  --piano-lane-start: var(--bg);
+  --piano-lane-end: var(--bg);
+  --input-bg: var(--surface);
+  --circle-shell-stroke: var(--line);
+  --circle-interval-stroke: var(--line);
+  --circle-node-fill: var(--surface-2);
+  --circle-node-stroke: var(--line-strong);
+  --circle-label-ink: var(--ink);
+  --circle-subtle-ink: var(--ink-3);
+  --circle-dot-stroke: var(--line-strong);
   --hud-step-width: 18px;
   --hud-panel-inline-padding: 0.78rem;
 }
