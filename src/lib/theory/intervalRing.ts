@@ -68,3 +68,4 @@ export function intervalColorForTonicAndRoot(
   const label = intervalLabelForTonicAndRoot(tonic, chordRoot);
   return label ? INTERVAL_COLOR_BY_LABEL[label] : fallback;
 }
+

@@ -3,7 +3,7 @@ import { getScaleOption } from '../content/scales';
 import type { MicConnectionState } from '../lib/audio/micAccess';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
-import { displaySpelling } from '../lib/theory/noteUtils';
+import { displayMusicText } from '../lib/theory/noteUtils';
 import type {
   CircleVisualizationMode,
   CurriculumPresetId,
@@ -217,7 +217,7 @@ function FlashcardPrompt({
   return (
     <article className={`flashcard-prompt ${revealed ? 'is-revealed' : ''}`.trim()}>
       <p className="flashcard-prompt-caption">Play This Chord</p>
-      <strong>{symbol}</strong>
+      <strong>{displayMusicText(symbol)}</strong>
       <span>{revealed ? 'Reference staff and keyboard revealed below.' : 'No notation hint until you miss.'}</span>
     </article>
   );
@@ -472,7 +472,7 @@ export function PracticeLayout({
                   }}
                   aria-label="Choose current key"
                 >
-                  in {tonicLabel === '—' ? '—' : displaySpelling(tonicLabel)}
+                  in {tonicLabel === '—' ? '—' : displayMusicText(tonicLabel)}
                 </button>
                 {walkthroughStep === 'key' && walkthroughMessage ? (
                   <WalkthroughBubble

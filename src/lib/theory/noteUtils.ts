@@ -116,9 +116,12 @@ export function midiToPitchClass(midi: number): string {
   return semitoneToPitchClass(midi % 12);
 }
 
-/** ASCII spellings ("Bb", "F#") rendered with real accidentals ("B♭", "F♯") for display. */
-export function displaySpelling(spelling: string): string {
-  return spelling.replace(/b/g, '♭').replace(/#/g, '♯');
+/** ASCII spellings stay internal; user-facing text renders real accidentals. */
+export function displayMusicText(text: string): string {
+  return text
+    .replace(/([A-G])b/g, '$1♭')
+    .replace(/(^|[\s0-9])b(?=\d)/g, '$1♭')
+    .replace(/#/g, '♯');
 }
 
 export function midiToNoteName(midi: number): string {

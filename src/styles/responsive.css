@@ -51,7 +51,7 @@
 @media (max-width: 980px) {
   .practice-screen {
     height: auto;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    min-height: 100dvh;
     overflow: visible;
   }
 
@@ -78,7 +78,10 @@
     margin-left: auto;
   }
 
-  /* Narrow windows get the full-width sheet, same as touch. */
+  /* Narrow windows get the full-width sheet, same as touch. The drawer itself is
+     height: 100% with internal scroll (settings.css); sizing it here with
+     height: auto + min-height would overflow the fixed overlay and clip long
+     sections, so only the width and border are overridden. */
   .settings-drawer {
     width: 100%;
     border-left: 0;
@@ -89,12 +92,18 @@
   }
 }
 
-/* Touch landscape must fit the viewport: keyboard ~55vh, compact notation, no circle.
-   Placed last so it wins over the max-width blocks above. */
+/* Touch landscape: a strict vertical grid that fits 100dvh with no overlap and
+   no page scroll — top bar, notation (1fr), octave gutter, keyboard (~55dvh).
+   The stats line and the Now/Next scale line are hidden here. Placed last so
+   it wins over the max-width blocks above. */
 @media (pointer: coarse) and (orientation: landscape) {
   .practice-screen {
-    height: calc(100vh - 1.1rem);
-    grid-template-rows: auto auto minmax(0, 1fr);
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .stats-line {
+    display: none;
   }
 
   .practice-workstack {
@@ -103,8 +112,8 @@
     grid-template-areas:
       'notation'
       'keyboard';
-    gap: var(--s-3);
-    min-height: 300px;
+    gap: var(--s-2);
+    min-height: 0;
     padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
   }
 
@@ -112,18 +121,24 @@
     display: none;
   }
 
+  .notation-scale-hud {
+    display: none;
+  }
+
   .practice-notation-slot {
     min-height: 0;
+    padding-top: var(--s-3);
   }
 
   .notation-strip {
     flex: 1 1 0;
-    height: auto;
     min-height: 0;
+    overflow: hidden;
   }
 
   .notation-strip-canvas {
     height: 100%;
+    align-items: flex-start;
   }
 
   .notation-strip-canvas svg {
@@ -138,9 +153,9 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Keys + octave bar together take about 55vh; chevrons stay on-screen above the keys. */
+  /* Keys + octave gutter together take about 55dvh; chevrons sit above the keys. */
   .piano-stage {
-    height: calc(55vh - 32px);
+    height: calc(55dvh - 48px);
   }
 
   .piano-octave-bar {

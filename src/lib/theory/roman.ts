@@ -99,7 +99,9 @@ export function qualityToSymbolSuffix(
 }
 
 export function resolveRomanToChord(tonic: string, roman: string): RomanResolution {
-  const tonicPitch = Note.pitchClass(tonic) ?? tonic;
+  // Keep the tonic's own spelling (Bb stays Bb); tonal's pitchClass would
+  // sharp-normalize it and degree spellings would come out as A# etc.
+  const tonicPitch = /^[A-G][b#]*$/.test(tonic) ? tonic : (Note.pitchClass(tonic) ?? tonic);
   const parsed = parseRoman(roman);
 
   const rootSpelling = spellScaleDegree(tonicPitch, parsed.degree, parsed.accidental);

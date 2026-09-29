@@ -1,6 +1,7 @@
 import { type CSSProperties, useMemo } from 'react';
 import { Midi } from 'tonal';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
+import { displayMusicText } from '../lib/theory/noteUtils';
 import type { ExerciseMode, ScalePrompt } from '../types/music';
 import {
   noteNumberForBinding,
@@ -277,6 +278,17 @@ export function QwertyView({
     () => buildGuideMarkers(currentScaleGuideLabels, clef, keys, targetNotes),
     [clef, currentScaleGuideLabels, keys, targetNotes],
   );
+  // One guide row: current-scale labels win; keys only in the next scale stay dimmed.
+  const guideRowMarkers = useMemo(() => {
+    const currentMidis = new Set(currentGuideMarkers.map((marker) => marker.midi));
+    const nextOnly = nextGuideMarkers
+      .filter((marker) => !currentMidis.has(marker.midi))
+      .map((marker) => ({ ...marker, isNext: true }));
+    return [
+      ...currentGuideMarkers.map((marker) => ({ ...marker, isNext: false })),
+      ...nextOnly,
+    ];
+  }, [currentGuideMarkers, nextGuideMarkers]);
   const currentGuideMidiSet = useMemo(
     () => new Set(currentGuideMarkers.map((marker) => marker.midi)),
     [currentGuideMarkers],
@@ -347,8 +359,8 @@ export function QwertyView({
     <div className="qwerty-view">
       {mode === 'improvisation' ? (
         <div className="scale-guide qwerty-scale-guide" aria-hidden="true" style={{ width: stageWidth }}>
-          <div className="scale-guide-row next">
-            {nextGuideMarkers.map((marker) => {
+          <div className="scale-guide-row">
+            {guideRowMarkers.map((marker) => {
               const key = keys.find((candidate) => candidate.midi === marker.midi);
               if (!key) {
                 return null;
@@ -356,27 +368,9 @@ export function QwertyView({
 
               return (
                 <span
-                  key={`next:${marker.midi}`}
-                  className="scale-guide-marker next"
-                  style={{ left: `${key.centerX}px` }}
-                >
-                  <ScaleGuideLabel label={marker.label} />
-                </span>
-              );
-            })}
-          </div>
-          <div className="scale-guide-row current">
-            {currentGuideMarkers.map((marker) => {
-              const key = keys.find((candidate) => candidate.midi === marker.midi);
-              if (!key) {
-                return null;
-              }
-
-              return (
-                <span
-                  key={`current:${marker.midi}`}
-                  className="scale-guide-marker current"
-                  style={{ left: `${key.centerX}px` }}
+                  key={`${marker.isNext ? 'next' : 'current'}:${marker.midi}`}
+                  className={`scale-guide-marker ${marker.isNext ? 'is-next' : ''}`.trim()}
+                  style={{ left: `${key.centerX}px`, maxWidth: `${WHITE_KEY_WIDTH}px` }}
                 >
                   <ScaleGuideLabel label={marker.label} />
                 </span>
@@ -430,7 +424,7 @@ export function QwertyView({
                   <span className="key-marker" style={scaleMarker} />
                 ) : null}
                 <span className="qwerty-keycap">{key.qwertyLabel}</span>
-                <span className="qwerty-note-label">{key.noteName}</span>
+                <span className="qwerty-note-label">{displayMusicText(key.noteName)}</span>
               </div>
             );
           })}
@@ -478,7 +472,7 @@ export function QwertyView({
                   <span className="key-marker" style={scaleMarker} />
                 ) : null}
                 <span className="qwerty-keycap">{key.qwertyLabel}</span>
-                <span className="qwerty-note-label">{key.noteName}</span>
+                <span className="qwerty-note-label">{displayMusicText(key.noteName)}</span>
               </div>
             );
           })}
