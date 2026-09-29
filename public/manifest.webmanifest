@@ -1,0 +1,23 @@
+{
+  "name": "Modal Muscle Memory",
+  "short_name": "MMM",
+  "description": "Piano voicing and scale practice trainer",
+  "display": "standalone",
+  "orientation": "landscape",
+  "start_url": "./",
+  "scope": "./",
+  "background_color": "#f4f0e8",
+  "theme_color": "#f4f0e8",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

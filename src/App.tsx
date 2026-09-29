@@ -20,6 +20,7 @@ import {
 import { getScaleOption } from './content/scales';
 import { PracticeLayout } from './components/PracticeLayout';
 import { PracticeSettingsDrawer } from './components/PracticeSettingsDrawer';
+import { RotateHint } from './components/RotateHint';
 import { ProgressScreen } from './components/ProgressScreen';
 import type { WalkthroughStep } from './components/WalkthroughBubble';
 import { createMicFallbackState, microphonePermissionGranted, MicAccessController, type MicConnectionState } from './lib/audio/micAccess';
@@ -3151,6 +3152,7 @@ export default function App() {
           onTogglePlayInputNotes={togglePlayInputNotes}
         />
       ) : null}
+      <RotateHint />
     </>
   );
 }

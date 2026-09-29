@@ -15,7 +15,8 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "build:sounds": "node scripts/build-sounds.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.3",

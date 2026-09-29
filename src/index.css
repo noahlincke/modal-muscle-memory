@@ -1084,8 +1084,7 @@ html[data-immersive='true'] .practice-workstack.is-circle-hidden {
   display: grid;
   gap: 0.2rem;
   align-items: center;
-  justify-self: center;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   margin-inline: auto;
 }
@@ -1100,17 +1099,17 @@ html[data-immersive='true'] .practice-workstack.is-circle-hidden {
 }
 
 html[data-immersive='true'] .keyboard-lane {
-  width: fit-content;
   max-width: min(100%, 1480px);
-  justify-self: center;
+  margin-inline: auto;
   padding: 0.4rem 0.48rem 0.28rem;
 }
 
 .piano-view {
-  width: auto;
+  position: relative;
+  width: 100%;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  display: grid;
+  gap: 0.08rem;
   padding: 0;
   margin-inline: auto;
 }
@@ -1127,17 +1126,6 @@ html[data-immersive='true'] .keyboard-lane {
 .qwerty-scale-guide {
   margin-inline: auto;
   pointer-events: none;
-}
-
-.piano-scroll {
-  min-width: 0;
-  width: max-content;
-}
-
-.piano-scroll-content {
-  width: max-content;
-  display: grid;
-  gap: 0.08rem;
 }
 
 .scale-guide {
@@ -1250,6 +1238,15 @@ html[data-immersive='true'] .scale-guide-marker {
   height: 96px;
 }
 
+.piano-stage.is-playable {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+
 .qwerty-stage {
   position: relative;
   height: 130px;
@@ -1289,7 +1286,6 @@ html[data-immersive='true'] .scale-guide-marker {
   left: 0;
   height: 60px;
   width: 100%;
-  pointer-events: none;
 }
 
 .piano-key {
@@ -1319,6 +1315,11 @@ html[data-immersive='true'] .scale-guide-marker {
   color: #d6dde8;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22);
   z-index: 3;
+}
+
+.piano-key.is-pressed {
+  transform: translateY(1px);
+  filter: brightness(0.92);
 }
 
 .piano-key.is-hit-correct {
@@ -1393,6 +1394,69 @@ html[data-immersive='true'] .scale-guide-marker {
 
 .key-marker.chord {
   background: var(--accent);
+}
+
+.piano-octave-button {
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--button-bg);
+  color: var(--ink-soft);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.piano-octave-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.piano-octave-button.lower {
+  left: 4px;
+}
+
+.piano-octave-button.higher {
+  right: 4px;
+}
+
+.piano-octave-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.rotate-hint {
+  display: none;
+}
+
+.rotate-hint svg {
+  width: 44px;
+  height: 44px;
+}
+
+@media (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
+  .rotate-hint {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.9rem;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 1rem;
+    font-weight: 600;
+    text-align: center;
+  }
 }
 
 .qwerty-key {

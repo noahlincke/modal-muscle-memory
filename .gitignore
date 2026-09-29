@@ -26,3 +26,6 @@ tmp_*.mjs
 *.njsproj
 *.sln
 *.sw?
+
+# instrument sample build cache
+.sound-cache/

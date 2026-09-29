@@ -1,8 +1,18 @@
-import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
+import {
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Midi } from 'tonal';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import type { ExerciseMode, ScalePrompt } from '../types/music';
 import { midiToPitchClass } from '../lib/theory/noteUtils';
+import { computeVisibleRange, isWhiteKey, TOTAL_WHITE_KEY_COUNT } from '../lib/keyboard/range';
 
 interface PianoViewProps {
   tonic: string | null;
@@ -23,6 +33,8 @@ interface PianoViewProps {
   highlightColor: string;
   onNoteOn?: (midi: number, velocity: number) => void;
   onNoteOff?: (midi: number) => void;
+  minWhiteKeyWidth?: number;
+  centerMidi?: number;
 }
 
 interface RenderKey {
@@ -31,10 +43,6 @@ interface RenderKey {
   left: number;
   right: number;
   centerX: number;
-}
-
-interface RenderBlackKey extends RenderKey {
-  right: number;
 }
 
 interface GuideMarker {
@@ -48,14 +56,12 @@ interface ScaleMarkerState {
   backgroundColor: string;
 }
 
-const WHITE_KEY_WIDTH = 26;
-const BLACK_KEY_WIDTH = 16;
+const BLACK_KEY_WIDTH_RATIO = 16 / 26;
+const DEFAULT_CENTER_MIDI = 60;
+const FINE_MIN_WHITE_KEY_WIDTH = 22;
+const COARSE_MIN_WHITE_KEY_WIDTH = 44;
+const MOUSE_VELOCITY = 0.75;
 const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-soft)';
-
-function isBlackKey(midi: number): boolean {
-  const pc = midi % 12;
-  return [1, 3, 6, 8, 10].includes(pc);
-}
 
 function splitGuideLabel(label: string): {
   prefixAccidental: string;
@@ -196,6 +202,17 @@ function buildGuideMarkers(
   return markers;
 }
 
+function velocityForPointer(pointerType: string, clientY: number, keyElement: Element): number {
+  if (pointerType === 'mouse') {
+    return MOUSE_VELOCITY;
+  }
+
+  const rect = keyElement.getBoundingClientRect();
+  const raw = rect.height > 0 ? (clientY - rect.top) / rect.height : 0.5;
+  const ratio = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0.5;
+  return 0.55 + ratio * 0.35;
+}
+
 export function PianoView({
   tonic,
   mode,
@@ -213,63 +230,190 @@ export function PianoView({
   nextScaleGuideLabels,
   activeNotes,
   highlightColor,
+  onNoteOn,
+  onNoteOff,
+  minWhiteKeyWidth,
+  centerMidi,
 }: PianoViewProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const playable = onNoteOn !== undefined && onNoteOff !== undefined;
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(() => (
+    typeof window === 'undefined' ? 0 : window.innerWidth
+  ));
+  const [octaveShift, setOctaveShift] = useState(0);
+  const [pressedMidis, setPressedMidis] = useState<Set<number>>(() => new Set());
 
-  const notes = useMemo(() => {
+  const pointersRef = useRef(new Map<number, number | null>());
+  const noteCountsRef = useRef(new Map<number, number>());
+  const onNoteOnRef = useRef(onNoteOn);
+  const onNoteOffRef = useRef(onNoteOff);
+  onNoteOnRef.current = onNoteOn;
+  onNoteOffRef.current = onNoteOff;
+
+  const coarsePointer = useMemo(() => (
+    typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
+  ), []);
+  const effectiveMinWhiteKeyWidth = minWhiteKeyWidth
+    ?? (coarsePointer ? COARSE_MIN_WHITE_KEY_WIDTH : FINE_MIN_WHITE_KEY_WIDTH);
+  const effectiveCenterMidi = centerMidi ?? DEFAULT_CENTER_MIDI;
+
+  const pressMidi = useCallback((midi: number, velocity: number) => {
+    const count = noteCountsRef.current.get(midi) ?? 0;
+    noteCountsRef.current.set(midi, count + 1);
+    if (count === 0) {
+      onNoteOnRef.current?.(midi, velocity);
+      setPressedMidis((previous) => new Set(previous).add(midi));
+    }
+  }, []);
+
+  const releaseMidi = useCallback((midi: number) => {
+    const count = (noteCountsRef.current.get(midi) ?? 0) - 1;
+    if (count > 0) {
+      noteCountsRef.current.set(midi, count);
+      return;
+    }
+
+    noteCountsRef.current.delete(midi);
+    onNoteOffRef.current?.(midi);
+    setPressedMidis((previous) => {
+      if (!previous.has(midi)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.delete(midi);
+      return next;
+    });
+  }, []);
+
+  const releasePointer = useCallback((pointerId: number) => {
+    const midi = pointersRef.current.get(pointerId);
+    if (midi === undefined) {
+      return;
+    }
+    pointersRef.current.delete(pointerId);
+    if (midi !== null) {
+      releaseMidi(midi);
+    }
+  }, [releaseMidi]);
+
+  const releaseAllPointers = useCallback(() => {
+    for (const pointerId of [...pointersRef.current.keys()]) {
+      releasePointer(pointerId);
+    }
+  }, [releasePointer]);
+
+  useLayoutEffect(() => {
+    const element = viewRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const update = () => {
+      // clientWidth 0 (hidden element, jsdom) carries no measurement; keep the
+      // current estimate instead of collapsing to the full range.
+      const width = element.clientWidth;
+      if (width <= 0) {
+        return;
+      }
+      setContainerWidth((previous) => {
+        // A width change rebuilds the key elements, which would strand any
+        // pointer captured to a removed key, so release held notes first.
+        if (previous !== width) {
+          releaseAllPointers();
+        }
+        return width;
+      });
+    };
+
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [releaseAllPointers]);
+
+  useEffect(() => {
+    if (!playable) {
+      return undefined;
+    }
+
+    const handleBlur = () => releaseAllPointers();
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        releaseAllPointers();
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      releaseAllPointers();
+    };
+  }, [playable, releaseAllPointers]);
+
+  const [lowMidi, highMidi] = useMemo(() => computeVisibleRange({
+    containerWidth,
+    minWhiteKeyWidth: effectiveMinWhiteKeyWidth,
+    centerMidi: effectiveCenterMidi,
+    octaveShift,
+  }), [containerWidth, effectiveMinWhiteKeyWidth, effectiveCenterMidi, octaveShift]);
+
+  const visibleMidis = useMemo(() => {
     const value: number[] = [];
-    for (let midi = minMidi; midi <= maxMidi; midi += 1) {
+    for (let midi = lowMidi; midi <= highMidi; midi += 1) {
       value.push(midi);
     }
     return value;
-  }, [minMidi, maxMidi]);
+  }, [lowMidi, highMidi]);
 
-  const targetSet = new Set([...targetNotes].slice(0, 4).sort((a, b) => a - b));
-  const flashcardAcceptedSet = useMemo(() => new Set(flashcardAcceptedPitchClasses), [flashcardAcceptedPitchClasses]);
-  const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
-  const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
-  const allowedImprovisationSet = new Set([
-    ...chordTonePitchClasses,
-    ...currentScalePitchClasses,
-    ...nextScalePitchClasses,
-  ]);
+  const whiteCount = useMemo(
+    () => visibleMidis.filter((midi) => isWhiteKey(midi)).length,
+    [visibleMidis],
+  );
+  const whiteWidthPct = 100 / whiteCount;
 
-  const whiteKeysBase: RenderKey[] = useMemo(() => notes
-    .filter((midi) => !isBlackKey(midi))
+  const whiteKeysBase: RenderKey[] = useMemo(() => visibleMidis
+    .filter((midi) => isWhiteKey(midi))
     .map((midi, index) => ({
       midi,
       noteName: Midi.midiToNoteName(midi, { sharps: true }) ?? `M${midi}`,
-      left: index * WHITE_KEY_WIDTH,
-      right: (index + 1) * WHITE_KEY_WIDTH,
-      centerX: (index * WHITE_KEY_WIDTH) + (WHITE_KEY_WIDTH / 2),
-    })), [notes]);
+      left: index * whiteWidthPct,
+      right: (index + 1) * whiteWidthPct,
+      centerX: (index * whiteWidthPct) + (whiteWidthPct / 2),
+    })), [visibleMidis, whiteWidthPct]);
 
-  const blackKeys: RenderBlackKey[] = useMemo(() => notes
-    .filter((midi) => isBlackKey(midi))
+  const blackKeys: RenderKey[] = useMemo(() => visibleMidis
+    .filter((midi) => !isWhiteKey(midi))
     .map((midi) => {
-      const previousWhiteIndex = whiteKeysBase.reduce((index, key, candidateIndex) => {
-        if (key.midi < midi) {
-          return candidateIndex;
+      const whitesBelow = visibleMidis.reduce((count, candidate) => {
+        if (isWhiteKey(candidate) && candidate < midi) {
+          return count + 1;
         }
-        return index;
-      }, -1);
+        return count;
+      }, 0);
+      const blackWidthPct = whiteWidthPct * BLACK_KEY_WIDTH_RATIO;
 
-      const left = previousWhiteIndex < 0
-        ? 0
-        : ((previousWhiteIndex + 1) * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2);
+      const left = whitesBelow > 0
+        ? (whitesBelow * whiteWidthPct) - (blackWidthPct / 2)
+        : -(blackWidthPct / 2);
 
       return {
         midi,
         noteName: Midi.midiToNoteName(midi, { sharps: true }) ?? `M${midi}`,
         left,
-        right: left + BLACK_KEY_WIDTH,
-        centerX: left + (BLACK_KEY_WIDTH / 2),
+        right: left + blackWidthPct,
+        centerX: left + (blackWidthPct / 2),
       };
     })
-    .filter((key) => key.left > 0 && key.left < (whiteKeysBase.length * WHITE_KEY_WIDTH)), [notes, whiteKeysBase]);
+    .filter((key) => key.left > 0 && key.left < 100), [visibleMidis, whiteWidthPct]);
 
   const whiteKeys: RenderKey[] = useMemo(() => whiteKeysBase.map((key) => {
-    const midpoint = key.left + (WHITE_KEY_WIDTH / 2);
+    const midpoint = (key.left + key.right) / 2;
     let visibleLeft = key.left;
     let visibleRight = key.right;
 
@@ -337,6 +481,16 @@ export function PianoView({
     return markers;
   }, [completedScaleNoteIndices, highlightColor, mode, scalePrompt]);
 
+  const targetSet = new Set([...targetNotes].slice(0, 4).sort((a, b) => a - b));
+  const flashcardAcceptedSet = useMemo(() => new Set(flashcardAcceptedPitchClasses), [flashcardAcceptedPitchClasses]);
+  const currentScaleSet = useMemo(() => new Set(currentScalePitchClasses), [currentScalePitchClasses]);
+  const nextScaleSet = useMemo(() => new Set(nextScalePitchClasses), [nextScalePitchClasses]);
+  const allowedImprovisationSet = new Set([
+    ...chordTonePitchClasses,
+    ...currentScalePitchClasses,
+    ...nextScalePitchClasses,
+  ]);
+
   function markerKindForMidi(midi: number): MarkerKind {
     return targetSet.has(midi) ? 'chord' : null;
   }
@@ -377,160 +531,245 @@ export function PianoView({
     return Object.keys(style).length > 0 ? style : undefined;
   }
 
-  useEffect(() => {
-    if (mode !== 'improvisation' || !scrollRef.current) {
+  const showOctaveControls = whiteCount < TOTAL_WHITE_KEY_COUNT;
+  const canLower = useMemo(() => computeVisibleRange({
+    containerWidth,
+    minWhiteKeyWidth: effectiveMinWhiteKeyWidth,
+    centerMidi: effectiveCenterMidi,
+    octaveShift: octaveShift - 1,
+  })[0] < lowMidi, [containerWidth, effectiveCenterMidi, effectiveMinWhiteKeyWidth, lowMidi, octaveShift]);
+  const canHigher = useMemo(() => computeVisibleRange({
+    containerWidth,
+    minWhiteKeyWidth: effectiveMinWhiteKeyWidth,
+    centerMidi: effectiveCenterMidi,
+    octaveShift: octaveShift + 1,
+  })[1] > highMidi, [containerWidth, effectiveCenterMidi, effectiveMinWhiteKeyWidth, highMidi, octaveShift]);
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const keyElement = (event.target as Element).closest<HTMLElement>('[data-midi]');
+    if (!keyElement) {
       return;
     }
 
-    const centerIndex = whiteKeys.findIndex((key) => key.midi === 60);
-    if (centerIndex < 0) {
+    event.preventDefault();
+    if (event.pointerType === 'mouse') {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer may already be gone; note tracking still works via map.
+      }
+    }
+
+    const midi = Number(keyElement.dataset.midi);
+    pointersRef.current.set(event.pointerId, midi);
+    pressMidi(midi, velocityForPointer(event.pointerType, event.clientY, keyElement));
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!pointersRef.current.has(event.pointerId)) {
       return;
     }
 
-    const centerX = whiteKeys[centerIndex].centerX;
-    const viewportWidth = scrollRef.current.clientWidth;
-    scrollRef.current.scrollLeft = Math.max(0, centerX - (viewportWidth / 2));
-  }, [mode, whiteKeys]);
+    const hitElement = document.elementFromPoint(event.clientX, event.clientY);
+    const keyElement = hitElement?.closest<HTMLElement>('[data-midi]') ?? null;
+    const midi = keyElement ? Number(keyElement.dataset.midi) : null;
+    if (pointersRef.current.get(event.pointerId) === midi) {
+      return;
+    }
 
-  const stageWidth = `${whiteKeys.length * WHITE_KEY_WIDTH}px`;
+    const previousMidi = pointersRef.current.get(event.pointerId) ?? null;
+    if (previousMidi !== null) {
+      releaseMidi(previousMidi);
+    }
+    pointersRef.current.set(event.pointerId, midi);
+    if (midi !== null && keyElement) {
+      pressMidi(midi, velocityForPointer(event.pointerType, event.clientY, keyElement));
+    }
+  }
+
+  function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    releasePointer(event.pointerId);
+  }
 
   return (
-    <div className="piano-view">
-      <div className="piano-scroll" ref={scrollRef}>
-        <div className="piano-scroll-content" style={{ width: stageWidth }}>
-          {mode === 'improvisation' ? (
-            <div className="scale-guide" aria-hidden="true">
-              <div className="scale-guide-row next">
-                {nextGuideMarkers.map((marker) => {
-                  const key = guideKeys.find((candidate) => candidate.midi === marker.midi);
-                  if (!key) {
-                    return null;
-                  }
+    <div className="piano-view" ref={viewRef}>
+      {mode === 'improvisation' ? (
+        <div className="scale-guide" aria-hidden="true">
+          <div className="scale-guide-row next">
+            {nextGuideMarkers.map((marker) => {
+              const key = guideKeys.find((candidate) => candidate.midi === marker.midi);
+              if (!key) {
+                return null;
+              }
 
-                  return (
-                    <span
-                      key={`next:${marker.midi}`}
-                      className="scale-guide-marker next"
-                      style={{ left: `${key.centerX}px` }}
-                    >
-                      <ScaleGuideLabel label={marker.label} />
-                    </span>
-                  );
-                })}
-              </div>
-              <div className="scale-guide-row current">
-                {currentGuideMarkers.map((marker) => {
-                  const key = guideKeys.find((candidate) => candidate.midi === marker.midi);
-                  if (!key) {
-                    return null;
-                  }
+              return (
+                <span
+                  key={`next:${marker.midi}`}
+                  className="scale-guide-marker next"
+                  style={{ left: `${key.centerX}%` }}
+                >
+                  <ScaleGuideLabel label={marker.label} />
+                </span>
+              );
+            })}
+          </div>
+          <div className="scale-guide-row current">
+            {currentGuideMarkers.map((marker) => {
+              const key = guideKeys.find((candidate) => candidate.midi === marker.midi);
+              if (!key) {
+                return null;
+              }
 
-                  return (
-                    <span
-                      key={`current:${marker.midi}`}
-                      className="scale-guide-marker current"
-                      style={{ left: `${key.centerX}px` }}
-                    >
-                      <ScaleGuideLabel label={marker.label} />
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="piano-stage" style={{ width: stageWidth }}>
-            <div className="piano-white-row">
-              {whiteKeys.map((key) => {
-                const active = activeNotes.has(key.midi);
-                const markerKind = markerKindForMidi(key.midi);
-                const scaleMarker = scaleMarkerStates.get(key.midi);
-                const guideStyle = keyGuideStyle(key.midi);
-                const keyClasses = [
-                  'piano-key',
-                  'white',
-                  guideStyle && 'is-scale-guided',
-                  guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-current',
-                  guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-next',
-                  toneClass(active, key.midi),
-                ]
-                  .filter(Boolean)
-                  .join(' ');
-                const style: CSSProperties = { width: `${WHITE_KEY_WIDTH}px`, ...guideStyle };
-
-                return (
-                  <div
-                    key={key.midi}
-                    className={keyClasses}
-                    role="img"
-                    aria-label={`Piano key ${key.noteName}`}
-                    style={style}
-                  >
-                    {guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band next" /> : null}
-                    {guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band current" /> : null}
-                    {markerKind ? (
-                      <span
-                        className={`key-marker ${markerKind}`.trim()}
-                        style={markerKind === 'chord' ? { backgroundColor: highlightColor } : undefined}
-                      />
-                    ) : null}
-                    {!markerKind && scaleMarker ? (
-                      <span className="key-marker" style={scaleMarker} />
-                    ) : null}
-                    {/^(C)\d$/.test(key.noteName) ? <span className="key-label">{key.noteName}</span> : null}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="piano-black-row">
-              {blackKeys.map((key) => {
-                const active = activeNotes.has(key.midi);
-                const markerKind = markerKindForMidi(key.midi);
-                const scaleMarker = scaleMarkerStates.get(key.midi);
-                const guideStyle = keyGuideStyle(key.midi);
-                const keyClasses = [
-                  'piano-key',
-                  'black',
-                  guideStyle && 'is-scale-guided',
-                  guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-current',
-                  guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-next',
-                  toneClass(active, key.midi),
-                ]
-                  .filter(Boolean)
-                  .join(' ');
-                const style: CSSProperties = {
-                  left: `${key.left}px`,
-                  width: `${BLACK_KEY_WIDTH}px`,
-                  ...guideStyle,
-                };
-
-                return (
-                  <div
-                    key={key.midi}
-                    className={keyClasses}
-                    role="img"
-                    aria-label={`Piano key ${key.noteName}`}
-                    style={style}
-                  >
-                    {guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band next" /> : null}
-                    {guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band current" /> : null}
-                    {markerKind ? (
-                      <span
-                        className={`key-marker ${markerKind}`.trim()}
-                        style={markerKind === 'chord' ? { backgroundColor: highlightColor } : undefined}
-                      />
-                    ) : null}
-                    {!markerKind && scaleMarker ? (
-                      <span className="key-marker" style={scaleMarker} />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+              return (
+                <span
+                  key={`current:${marker.midi}`}
+                  className="scale-guide-marker current"
+                  style={{ left: `${key.centerX}%` }}
+                >
+                  <ScaleGuideLabel label={marker.label} />
+                </span>
+              );
+            })}
           </div>
         </div>
+      ) : null}
+
+      <div
+        className={`piano-stage${playable ? ' is-playable' : ''}`.trim()}
+        onPointerDown={playable ? handlePointerDown : undefined}
+        onPointerMove={playable ? handlePointerMove : undefined}
+        onPointerUp={playable ? handlePointerEnd : undefined}
+        onPointerCancel={playable ? handlePointerEnd : undefined}
+        onLostPointerCapture={playable ? handlePointerEnd : undefined}
+        onContextMenu={playable ? (event) => event.preventDefault() : undefined}
+        onClick={playable ? (event) => event.stopPropagation() : undefined}
+      >
+        <div className="piano-white-row">
+          {whiteKeys.map((key) => {
+            const active = activeNotes.has(key.midi);
+            const markerKind = markerKindForMidi(key.midi);
+            const scaleMarker = scaleMarkerStates.get(key.midi);
+            const guideStyle = keyGuideStyle(key.midi);
+            const keyClasses = [
+              'piano-key',
+              'white',
+              pressedMidis.has(key.midi) && 'is-pressed',
+              guideStyle && 'is-scale-guided',
+              guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-current',
+              guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-next',
+              toneClass(active, key.midi),
+            ]
+              .filter(Boolean)
+              .join(' ');
+            const style: CSSProperties = { width: `${whiteWidthPct}%`, ...guideStyle };
+
+            return (
+              <div
+                key={key.midi}
+                className={keyClasses}
+                role="img"
+                aria-label={`Piano key ${key.noteName}`}
+                style={style}
+                data-midi={key.midi}
+              >
+                {guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band next" /> : null}
+                {guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band current" /> : null}
+                {markerKind ? (
+                  <span
+                    className={`key-marker ${markerKind}`.trim()}
+                    style={markerKind === 'chord' ? { backgroundColor: highlightColor } : undefined}
+                  />
+                ) : null}
+                {!markerKind && scaleMarker ? (
+                  <span className="key-marker" style={scaleMarker} />
+                ) : null}
+                {/^(C)\d$/.test(key.noteName) ? <span className="key-label">{key.noteName}</span> : null}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="piano-black-row">
+          {blackKeys.map((key) => {
+            const active = activeNotes.has(key.midi);
+            const markerKind = markerKindForMidi(key.midi);
+            const scaleMarker = scaleMarkerStates.get(key.midi);
+            const guideStyle = keyGuideStyle(key.midi);
+            const keyClasses = [
+              'piano-key',
+              'black',
+              pressedMidis.has(key.midi) && 'is-pressed',
+              guideStyle && 'is-scale-guided',
+              guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-current',
+              guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) && 'is-scale-next',
+              toneClass(active, key.midi),
+            ]
+              .filter(Boolean)
+              .join(' ');
+            const style: CSSProperties = {
+              left: `${key.left}%`,
+              width: `${(key.right - key.left)}%`,
+              ...guideStyle,
+            };
+
+            return (
+              <div
+                key={key.midi}
+                className={keyClasses}
+                role="img"
+                aria-label={`Piano key ${key.noteName}`}
+                style={style}
+                data-midi={key.midi}
+              >
+                {guideStyle && nextScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band next" /> : null}
+                {guideStyle && currentScaleSet.has(midiToPitchClass(key.midi)) ? <span className="key-scale-band current" /> : null}
+                {markerKind ? (
+                  <span
+                    className={`key-marker ${markerKind}`.trim()}
+                    style={markerKind === 'chord' ? { backgroundColor: highlightColor } : undefined}
+                  />
+                ) : null}
+                {!markerKind && scaleMarker ? (
+                  <span className="key-marker" style={scaleMarker} />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {showOctaveControls ? (
+        <>
+          <button
+            type="button"
+            className="piano-octave-button lower"
+            aria-label="Lower octave"
+            disabled={!canLower}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOctaveShift((shift) => shift - 1);
+            }}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="piano-octave-button higher"
+            aria-label="Higher octave"
+            disabled={!canHigher}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOctaveShift((shift) => shift + 1);
+            }}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }
