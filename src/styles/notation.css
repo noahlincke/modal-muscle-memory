@@ -6,8 +6,9 @@
   overflow-y: hidden;
   min-height: 314px;
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .notation-strip.improvisation.bass {
@@ -19,21 +20,22 @@
 }
 
 .notation-strip-canvas {
+  /* The scale HUD is the first DOM child; keep the staff above it visually. */
+  order: -1;
   width: 100%;
   display: flex;
   justify-content: center;
 }
 
+/* In flow directly under the staff (--s-4 below the canvas), so the slack in
+   the tall notation slot collects below this line instead of between it and
+   the keyboard. The canvas is the first flex child (see the strip above). */
 .notation-scale-hud {
-  position: absolute;
-  left: var(--s-4);
-  right: var(--s-4);
-  bottom: var(--s-2);
+  margin-top: var(--s-4);
   display: grid;
   gap: var(--s-1);
   justify-items: start;
   pointer-events: none;
-  z-index: 2;
 }
 
 .notation-scale-hud p {

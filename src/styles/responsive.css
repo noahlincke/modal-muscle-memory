@@ -28,9 +28,7 @@
 
 @media (max-width: 720px) {
   .notation-scale-hud {
-    left: var(--s-3);
-    right: var(--s-3);
-    bottom: var(--s-2);
+    margin-top: var(--s-3);
     gap: var(--s-1);
   }
 

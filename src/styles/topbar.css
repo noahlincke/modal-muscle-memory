@@ -1,8 +1,10 @@
 .practice-topbar {
   display: grid;
-  /* minmax(0, auto): the navigator grows to its content when there is room and
-     shrinks (ellipsis on the progression) when space is tight. */
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  /* Side tracks never shrink below their content (the wordmark and the action
+     cluster keep their width); the navigator middle track absorbs the squeeze
+     and ellipsizes the progression first. minmax(0, auto): the navigator grows
+     to its content when there is room. */
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
   gap: var(--s-4);
   height: 48px;
@@ -11,6 +13,10 @@
 }
 
 .topbar-wordmark {
+  /* Explicit placement: when the wordmark is hidden at narrow widths the grid
+     item disappears, and auto-placement would otherwise pull the navigator and
+     the action cluster one column left. */
+  grid-column: 1;
   font-family: var(--font-serif);
   font-size: 17px;
   font-weight: 600;
@@ -18,12 +24,20 @@
   white-space: nowrap;
 }
 
+.topbar-wordmark-compact {
+  display: none;
+}
+
 .topbar-nav {
+  grid-column: 2;
   display: flex;
   align-items: center;
   gap: var(--s-1);
   justify-self: center;
   min-width: 0;
+  /* Hard cap at the grid track: when the bar is tight the track shrinks first
+     and the progression ellipsizes instead of the nav overflowing it. */
+  max-width: 100%;
 }
 
 .topbar-nav-center {
@@ -101,7 +115,36 @@
   padding: 0 var(--s-1);
 }
 
+/* Narrow windows: compact wordmark, tighter gaps, and the tempo stepper loses
+   its −/+ buttons (the number stays directly editable). */
+@media (max-width: 1000px) {
+  .practice-topbar {
+    gap: var(--s-2);
+  }
+
+  .topbar-wordmark-full {
+    display: none;
+  }
+
+  .topbar-wordmark-compact {
+    display: inline;
+  }
+}
+
+@media (max-width: 900px) {
+  .stepper-button {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar-wordmark {
+    display: none;
+  }
+}
+
 .topbar-actions {
+  grid-column: 3;
   display: flex;
   align-items: center;
   gap: var(--s-2);
