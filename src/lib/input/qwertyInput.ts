@@ -95,12 +95,16 @@ export function createSyntheticNoteMessage(
   type: 'note_on' | 'note_off',
   noteNumber: number,
   timestamp: number,
+  normalizedVelocity?: number,
 ): ParsedMidiMessage {
   if (type === 'note_on') {
+    const velocity = normalizedVelocity === undefined
+      ? 96
+      : Math.min(127, Math.max(1, Math.round(normalizedVelocity * 127)));
     return {
       type: 'note_on',
       noteNumber,
-      velocity: 96,
+      velocity,
       channel: 1,
       pitchClass: midiToPitchClass(noteNumber),
       timestamp,

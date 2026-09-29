@@ -21,6 +21,8 @@ interface PianoViewProps {
   nextScaleGuideLabels: Record<string, string>;
   activeNotes: Set<number>;
   highlightColor: string;
+  onNoteOn?: (midi: number, velocity: number) => void;
+  onNoteOff?: (midi: number) => void;
 }
 
 interface RenderKey {

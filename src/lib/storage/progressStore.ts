@@ -13,8 +13,8 @@ import { getPackForLane } from '../../content/packs';
 import type { ExerciseMode, ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
 import type {
   AttemptRecord,
-  InputModePreference,
   ExerciseConfig,
+  InputMode,
   ProgressState,
   SessionRecord,
   UnlockState,
@@ -24,7 +24,7 @@ import { registerForClef, type StaffClef } from '../theory/voicingPlacement';
 import { orderedVoicingFamilies, VOICING_FAMILIES_IN_ORDER } from '../voicingFamilies';
 
 const STORAGE_KEY = 'modal-muscle-memory-progress';
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const SESSION_MERGE_GAP_MS = 1000 * 60 * 12;
 const RHYTHM_FILTER_IDS: Array<RhythmCellId | 'all'> = [
   'all',
@@ -188,8 +188,8 @@ function normalizeCircleVisualizationMode(value: unknown): UserSettings['circleV
   return 'intervals';
 }
 
-function normalizeInputModePreference(value: unknown): InputModePreference {
-  return value === 'qwerty' ? 'qwerty' : 'auto';
+function normalizeInputMode(value: unknown): InputMode {
+  return value === 'midi' || value === 'qwerty' || value === 'mic' ? value : 'touch';
 }
 
 function normalizeStaffClef(value: unknown): StaffClef {
@@ -209,9 +209,8 @@ function defaultSettings(): UserSettings {
     registerMax: trebleRegister.max,
     scoringMode: 'lenient',
     midiInputId: null,
-    inputModePreference: 'auto',
-    enableReferencePlayback: true,
-    enableComputerKeyboardAudio: true,
+    inputMode: 'touch',
+    playInputNotes: true,
     circleVisualizationMode: 'intervals',
     immersiveMode: false,
   };
@@ -305,6 +304,14 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
   const rawSettingsSource = (raw.settings ?? {}) as Record<string, unknown>;
   const rawSettings = { ...rawSettingsSource };
   delete rawSettings.keyboardFriendlyVoicings;
+  delete rawSettings.enableReferencePlayback;
+  delete rawSettings.inputModePreference;
+  rawSettings.inputMode = rawSettings.inputMode
+    ?? (rawSettingsSource.inputModePreference === 'qwerty' ? 'qwerty' : 'touch');
+  if (rawSettings.playInputNotes === undefined && rawSettingsSource.enableComputerKeyboardAudio !== undefined) {
+    rawSettings.playInputNotes = rawSettingsSource.enableComputerKeyboardAudio;
+  }
+  delete rawSettings.enableComputerKeyboardAudio;
   const staffClef = normalizeStaffClef(rawSettings.staffClef);
   const register = registerForClef(staffClef);
 
@@ -354,7 +361,8 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
       registerMax: register.max,
       scaleGuideLabelMode: normalizeScaleGuideLabelMode(rawSettings.scaleGuideLabelMode),
       circleVisualizationMode: normalizeCircleVisualizationMode(rawSettings.circleVisualizationMode),
-      inputModePreference: normalizeInputModePreference(rawSettings.inputModePreference),
+      inputMode: normalizeInputMode(rawSettings.inputMode),
+      playInputNotes: rawSettings.playInputNotes !== false,
     },
     unlocksByLane: unlocks,
     nodeMastery: raw.nodeMastery ?? {},

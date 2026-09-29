@@ -14,7 +14,7 @@ import type {
   Phrase,
   ScalePrompt,
 } from '../types/music';
-import type { EffectiveInputMode } from '../types/progress';
+import type { InputMode } from '../types/progress';
 import { CircleOfFifths } from './CircleOfFifths';
 import { NotationStrip } from './NotationStrip';
 import { PianoView } from './PianoView';
@@ -68,7 +68,9 @@ interface PracticeLayoutProps {
   latestEvaluation: EvaluationResult | null;
   midiState: MidiConnectionState;
   micState: MicConnectionState;
-  inputMode: EffectiveInputMode;
+  inputMode: InputMode;
+  onTouchNoteOn?: (midi: number, velocity: number) => void;
+  onTouchNoteOff?: (midi: number) => void;
   canStepKey: boolean;
   qwertyOctaveShift: number;
   tempo: number;
@@ -359,6 +361,8 @@ export function PracticeLayout({
   midiState,
   micState,
   inputMode,
+  onTouchNoteOn,
+  onTouchNoteOff,
   canStepKey,
   qwertyOctaveShift,
   tempo,
@@ -463,7 +467,7 @@ export function PracticeLayout({
     ? 'QWERTY mode pinned'
     : (inputMode === 'mic'
       ? (micState.error ?? (micState.ready ? 'Mic active' : 'Mic waiting for permission'))
-      : (midiState.error ?? null));
+      : (inputMode === 'midi' ? (midiState.error ?? null) : null));
   const showDismissibleQwertyWarning = inputMode === 'qwerty' && !dismissedQwertyWarning;
   const showPersistentInputWarning = inputMode === 'mic'
     ? Boolean(inputWarning)
@@ -1383,6 +1387,8 @@ export function PracticeLayout({
                 nextScaleGuideLabels={nextScaleGuideLabels}
                 activeNotes={activeNotes}
                 highlightColor={chordHighlightColor}
+                onNoteOn={onTouchNoteOn}
+                onNoteOff={onTouchNoteOff}
               />
             )}
           </div>

@@ -50,6 +50,19 @@ export function createMicFallbackState(): MicConnectionState {
   };
 }
 
+export async function microphonePermissionGranted(): Promise<boolean> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+      return false;
+    }
+
+    const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+    return status.state === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 export class MicAccessController {
   private stream: MediaStream | null = null;
 
@@ -62,6 +75,8 @@ export class MicAccessController {
   private frameBuffer: Float32Array<ArrayBuffer> | null = null;
 
   private analysisTimerId: number | null = null;
+
+  private generation = 0;
 
   private state: MicConnectionState = createMicFallbackState();
 
@@ -84,6 +99,7 @@ export class MicAccessController {
       return this.state;
     }
 
+    const generation = ++this.generation;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -93,9 +109,19 @@ export class MicAccessController {
         },
       });
 
+      if (generation !== this.generation) {
+        this.stop();
+        return this.state;
+      }
+
       this.audioContext = createAudioContext();
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
+      }
+
+      if (generation !== this.generation) {
+        this.stop();
+        return this.state;
       }
 
       this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
@@ -131,6 +157,7 @@ export class MicAccessController {
   }
 
   stop(): void {
+    this.generation += 1;
     const wasActive = this.state.ready || this.state.listening || this.stream !== null || this.audioContext !== null;
 
     if (this.analysisTimerId !== null) {

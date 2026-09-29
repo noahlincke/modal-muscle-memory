@@ -15,6 +15,46 @@ describe('progressStore', () => {
     expect(progress.exerciseConfig.scaleFlowMode).toBe('mixed_recall');
     expect(progress.exerciseConfig.scalePracticeDirection).toBe('up_down');
     expect(progress.exerciseConfig.scaleOctaveSpan).toBe(1);
+    expect(progress.settings.inputMode).toBe('touch');
+    expect(progress.settings.playInputNotes).toBe(true);
+  });
+
+  it('migrates a saved qwerty preference to the explicit qwerty input mode', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        settings: {
+          inputModePreference: 'qwerty',
+          enableComputerKeyboardAudio: false,
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.settings.inputMode).toBe('qwerty');
+    expect(loaded.settings.playInputNotes).toBe(false);
+    const storedSettings = loaded.settings as unknown as Record<string, unknown>;
+    expect(storedSettings.enableComputerKeyboardAudio).toBeUndefined();
+    expect(storedSettings.enableReferencePlayback).toBeUndefined();
+    expect(storedSettings.inputModePreference).toBeUndefined();
+  });
+
+  it('migrates the auto preference to touch input mode', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        settings: {
+          inputModePreference: 'auto',
+          enableComputerKeyboardAudio: true,
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.settings.inputMode).toBe('touch');
+    expect(loaded.settings.playInputNotes).toBe(true);
   });
 
   it('defaults treble register settings to the higher right-hand range', () => {
@@ -23,7 +63,7 @@ describe('progressStore', () => {
     expect(progress.settings.staffClef).toBe('treble');
     expect(progress.settings.registerMin).toBe(60);
     expect(progress.settings.registerMax).toBe(84);
-    expect(progress.settings.inputModePreference).toBe('auto');
+    expect(progress.settings.inputMode).toBe('touch');
   });
 
   it('defaults missing saved rhythm settings to whole and half notes', () => {
@@ -74,8 +114,8 @@ describe('progressStore', () => {
     progress.exerciseConfig.scaleOctaveSpan = 2;
     progress.exerciseConfig.improvisationAdvanceMode = 'footpedal_release';
     progress.exerciseConfig.chainMovement = 72;
-    progress.settings.enableComputerKeyboardAudio = false;
-    progress.settings.inputModePreference = 'qwerty';
+    progress.settings.playInputNotes = false;
+    progress.settings.inputMode = 'qwerty';
     progress.settings.practiceTrackingMode = 'play';
     progress.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'] = {
       attempts: 4,
@@ -101,8 +141,8 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.voicingPracticeMode).toBe('auto');
     expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
-    expect(loaded.settings.enableComputerKeyboardAudio).toBe(false);
-    expect(loaded.settings.inputModePreference).toBe('qwerty');
+    expect(loaded.settings.playInputNotes).toBe(false);
+    expect(loaded.settings.inputMode).toBe('qwerty');
     expect(loaded.settings.practiceTrackingMode).toBe('play');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1']).toBeDefined();
   });
@@ -162,7 +202,7 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.voicingPracticeMode).toBe('auto');
     expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
-    expect(loaded.settings.enableComputerKeyboardAudio).toBe(true);
+    expect(loaded.settings.playInputNotes).toBe(true);
     expect(loaded.settings.practiceTrackingMode).toBe('test');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'].attempts).toBe(8);
   });

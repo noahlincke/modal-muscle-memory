@@ -10,6 +10,7 @@ import {
   type PotentialPhraseVariant,
 } from '../lib/engine/phraseGenerator';
 import type { MicConnectionState } from '../lib/audio/micAccess';
+import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { progressionRomanSummary, progressionSubtitle } from '../lib/progressionLabels';
 import { VOICING_FAMILY_LABELS } from '../lib/voicingFamilies';
 import type {
@@ -18,11 +19,12 @@ import type {
   ScaleFamilyId,
   VoicingFamily,
 } from '../types/music';
-import type { EffectiveInputMode, ExerciseConfig, ProgressState } from '../types/progress';
+import type { ExerciseConfig, InputMode, ProgressState } from '../types/progress';
 
 interface PracticeSettingsDrawerProps {
   progress: ProgressState;
-  inputMode: EffectiveInputMode;
+  inputMode: InputMode;
+  midiState: MidiConnectionState;
   micState: MicConnectionState;
   potentialProgressionCount: number;
   potentialPhraseVariants: PotentialPhraseVariant[];
@@ -42,9 +44,18 @@ interface PracticeSettingsDrawerProps {
   onToggleSelectedVoicing: (voicingFamily: VoicingFamily) => void;
   onToggleScaleFamily: (scaleFamilyId: ScaleFamilyId) => void;
   onToggleProgressionFamily: (progressionFamilyTag: ProgressionFamilyTag) => void;
-  onSelectInputModePreference: (preference: ProgressState['settings']['inputModePreference']) => void;
-  onToggleComputerKeyboardAudio: () => void;
+  onSelectInputMode: (mode: InputMode) => void;
+  onSelectMidiInput: (inputId: string | null) => void;
+  onEnableMicrophone: () => void;
+  onTogglePlayInputNotes: () => void;
 }
+
+const INPUT_MODE_OPTIONS: Array<{ value: InputMode; label: string; help: string }> = [
+  { value: 'touch', label: 'Touch', help: 'Play the on-screen keyboard with fingers or mouse.' },
+  { value: 'midi', label: 'MIDI', help: 'Play a connected MIDI keyboard.' },
+  { value: 'qwerty', label: 'Computer keyboard', help: 'Play with your computer keyboard.' },
+  { value: 'mic', label: 'Microphone', help: 'Sing or play into your microphone and the app hears the notes.' },
+];
 
 const RHYTHM_OPTIONS: Array<{ value: RhythmFilterId; label: string }> = [
   { value: 'all', label: 'All' },
@@ -76,6 +87,7 @@ function PersonIcon() {
 export function PracticeSettingsDrawer({
   progress,
   inputMode,
+  midiState,
   micState,
   potentialProgressionCount,
   potentialPhraseVariants,
@@ -93,8 +105,10 @@ export function PracticeSettingsDrawer({
   onToggleSelectedVoicing,
   onToggleScaleFamily,
   onToggleProgressionFamily,
-  onSelectInputModePreference,
-  onToggleComputerKeyboardAudio,
+  onSelectInputMode,
+  onSelectMidiInput,
+  onEnableMicrophone,
+  onTogglePlayInputNotes,
 }: PracticeSettingsDrawerProps) {
   const [emailInput, setEmailInput] = useState('');
   const [potentialDetailsOpen, setPotentialDetailsOpen] = useState(false);
@@ -366,76 +380,103 @@ export function PracticeSettingsDrawer({
 
         <section className="settings-section">
           <div className="settings-section-copy">
-            <h3>Input Source</h3>
-            <p>MIDI and Mic auto-switch. QWERTY only stays active when you pin it here.</p>
+            <h3>Input</h3>
+            <p>Choose how you play notes. Only the selected mode listens.</p>
           </div>
           <div className="settings-toggle-inline">
             <strong>Input Mode</strong>
             <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Input source">
-              <button
-                type="button"
-                className={`practice-mode-toggle-option ${inputMode === 'midi' ? 'active' : ''}`.trim()}
-                aria-pressed={inputMode === 'midi'}
-                onClick={() => onSelectInputModePreference('auto')}
-              >
-                MIDI
-              </button>
-              <button
-                type="button"
-                className={`practice-mode-toggle-option ${inputMode === 'mic' ? 'active' : ''}`.trim()}
-                aria-pressed={inputMode === 'mic'}
-                onClick={() => onSelectInputModePreference('auto')}
-              >
-                Mic
-              </button>
-              <button
-                type="button"
-                className={`practice-mode-toggle-option ${progress.settings.inputModePreference === 'qwerty' ? 'active' : ''}`.trim()}
-                aria-pressed={progress.settings.inputModePreference === 'qwerty'}
-                onClick={() => onSelectInputModePreference('qwerty')}
-              >
-                QWERTY
-              </button>
+              {INPUT_MODE_OPTIONS.map((option) => {
+                const unsupported = option.value === 'midi' && !midiState.supported;
+                const micUnsupported = option.value === 'mic' && !micState.supported;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`practice-mode-toggle-option ${inputMode === option.value ? 'active' : ''}`.trim()}
+                    aria-pressed={inputMode === option.value}
+                    disabled={unsupported || micUnsupported}
+                    title={unsupported
+                      ? 'Web MIDI isn\'t supported in this browser. Try Chrome or Edge.'
+                      : undefined}
+                    onClick={() => onSelectInputMode(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <p className="settings-meta">
-            {progress.settings.inputModePreference === 'qwerty'
-              ? 'QWERTY is pinned until you switch back to auto.'
-              : (inputMode === 'midi'
-                ? 'Auto source: MIDI is active while a device is connected. Mic resumes automatically when MIDI disconnects.'
-                : 'Auto source: Mic is active because no MIDI input is connected.')}
+            {INPUT_MODE_OPTIONS.find((option) => option.value === inputMode)?.help}
           </p>
-          <p className="settings-meta">
-            {micState.error
-              ? `Mic status: ${micState.error}`
-              : (micState.ready ? 'Mic status: listening.' : 'Mic status: waiting for permission or idle until Mic mode is active.')}
-          </p>
+          {!midiState.supported ? (
+            <p className="settings-meta">MIDI: Web MIDI isn't supported in this browser. Try Chrome or Edge.</p>
+          ) : null}
+          {!micState.supported ? (
+            <p className="settings-meta">Microphone: microphone input is unavailable in this browser.</p>
+          ) : null}
+          {inputMode === 'midi' ? (
+            <>
+              <select
+                className="settings-text-input"
+                aria-label="MIDI device"
+                value={midiState.activeInputId ?? ''}
+                onChange={(event) => onSelectMidiInput(event.target.value || null)}
+                disabled={midiState.inputs.length === 0}
+              >
+                {midiState.inputs.length === 0 ? (
+                  <option value="">No MIDI devices found</option>
+                ) : (
+                  midiState.inputs.map((input) => (
+                    <option key={input.id} value={input.id}>{input.name}</option>
+                  ))
+                )}
+              </select>
+              <p className="settings-meta">
+                {midiState.activeInputId
+                  ? `Connected: ${midiState.inputs.find((input) => input.id === midiState.activeInputId)?.name ?? 'MIDI device'}`
+                  : 'No MIDI devices found'}
+              </p>
+            </>
+          ) : null}
+          {inputMode === 'mic' ? (
+            micState.ready ? (
+              <p className="settings-meta">Mic status: listening.</p>
+            ) : (
+              <>
+                <div className="settings-actions">
+                  <button type="button" onClick={onEnableMicrophone}>Enable microphone</button>
+                </div>
+                <p className="settings-meta">
+                  {micState.error ? `Mic status: ${micState.error}` : 'Mic status: waiting for permission.'}
+                </p>
+              </>
+            )
+          ) : null}
           <div className="settings-toggle-inline">
-            <strong>Computer Audio</strong>
-            <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Computer audio">
+            <strong>Play my notes</strong>
+            <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Play my notes">
               <button
                 type="button"
-                className={`practice-mode-toggle-option ${!progress.settings.enableComputerKeyboardAudio ? 'active' : ''}`.trim()}
-                aria-pressed={!progress.settings.enableComputerKeyboardAudio}
-                onClick={onToggleComputerKeyboardAudio}
+                className={`practice-mode-toggle-option ${!progress.settings.playInputNotes ? 'active' : ''}`.trim()}
+                aria-pressed={!progress.settings.playInputNotes}
+                onClick={onTogglePlayInputNotes}
               >
                 Off
               </button>
               <button
                 type="button"
-                className={`practice-mode-toggle-option ${progress.settings.enableComputerKeyboardAudio ? 'active' : ''}`.trim()}
-                aria-pressed={progress.settings.enableComputerKeyboardAudio}
-                onClick={onToggleComputerKeyboardAudio}
+                className={`practice-mode-toggle-option ${progress.settings.playInputNotes ? 'active' : ''}`.trim()}
+                aria-pressed={progress.settings.playInputNotes}
+                onClick={onTogglePlayInputNotes}
               >
                 On
               </button>
             </div>
           </div>
-          <p className="settings-meta">
-            {inputMode === 'qwerty'
-              ? 'This controls whether the browser plays pinned QWERTY notes.'
-              : 'This controls whether the browser previews incoming MIDI or QWERTY notes.'}
-          </p>
+          <p className="settings-meta">Turn off if your MIDI keyboard makes its own sound.</p>
         </section>
 
         {isImprovisationMode ? (

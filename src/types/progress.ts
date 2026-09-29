@@ -74,8 +74,7 @@ export interface SessionRecord {
   medianTransitionLatencyMs: number;
 }
 
-export type InputModePreference = 'auto' | 'qwerty';
-export type EffectiveInputMode = 'midi' | 'mic' | 'qwerty';
+export type InputMode = 'touch' | 'midi' | 'qwerty' | 'mic';
 
 export interface UserSettings {
   tempo: number;
@@ -88,9 +87,8 @@ export interface UserSettings {
   registerMax: number;
   scoringMode: ScoringMode;
   midiInputId: string | null;
-  inputModePreference: InputModePreference;
-  enableReferencePlayback: boolean;
-  enableComputerKeyboardAudio: boolean;
+  inputMode: InputMode;
+  playInputNotes: boolean;
   circleVisualizationMode: CircleVisualizationMode;
   immersiveMode: boolean;
 }
