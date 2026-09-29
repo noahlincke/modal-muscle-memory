@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  displayMusicText,
   intervalColorForTonicAndRoot,
   intervalLabelForTonicAndRoot,
   rootsInFifthsOrderForTonic,
@@ -27,5 +28,13 @@ describe('interval ring mapping', () => {
   it('rotates circle roots so the current tonic is on top', () => {
     expect(rootsInFifthsOrderForTonic('G').slice(0, 4)).toEqual(['G', 'D', 'A', 'E']);
     expect(rootsInFifthsOrderForTonic('Bb').slice(0, 4)).toEqual(['Bb', 'F', 'C', 'G']);
+  });
+
+  it('renders accidentals as glyphs for display only', () => {
+    expect(displayMusicText('Bb7')).toBe('B♭7');
+    expect(displayMusicText('F#m7b5')).toBe('F♯m7♭5');
+    expect(displayMusicText('Dorian b2')).toBe('Dorian ♭2');
+    expect(displayMusicText('Blues')).toBe('Blues');
+    expect(displayMusicText('Bb')).toBe('B♭');
   });
 });

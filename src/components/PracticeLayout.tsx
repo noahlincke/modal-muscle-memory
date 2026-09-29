@@ -3,7 +3,7 @@ import { keySignatureForRoot } from '../content/keys';
 import { getScaleOption } from '../content/scales';
 import type { MicConnectionState } from '../lib/audio/micAccess';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
-import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
+import { displayMusicText, intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import type {
   CircleVisualizationMode,
   CurriculumPresetId,
@@ -266,7 +266,7 @@ function FlashcardPrompt({
   return (
     <article className={`flashcard-prompt ${revealed ? 'is-revealed' : ''}`.trim()}>
       <p className="flashcard-prompt-caption">Play This Chord</p>
-      <strong>{symbol}</strong>
+      <strong>{displayMusicText(symbol)}</strong>
       <span>{revealed ? 'Reference staff and keyboard revealed below.' : 'No notation hint until you miss.'}</span>
     </article>
   );

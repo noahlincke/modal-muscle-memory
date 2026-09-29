@@ -11,6 +11,20 @@ describe('roman spelling', () => {
     expect(resolved.rootPitchClass).toBe('A#');
   });
 
+  it('keeps the tonic spelling when the tonic itself is flat', () => {
+    const resolved = resolveRomanToChord('Bb', 'I7');
+
+    expect(resolved.rootSpelling).toBe('Bb');
+    expect(resolved.symbol).toBe('Bb7');
+  });
+
+  it('spells every Bb major degree with the key spelling, not sharps', () => {
+    const degrees = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+
+    expect(degrees.map((roman) => resolveRomanToChord('Bb', roman).rootSpelling))
+      .toEqual(['Bb', 'C', 'D', 'Eb', 'F', 'G', 'A']);
+  });
+
   it('spells chord voicings with flats in flat keys', () => {
     const token = buildChordToken({
       tonic: 'F',

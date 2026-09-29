@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Accidental, Dot, Formatter, Renderer, Stave, StaveNote, StaveTie, Voice } from 'vexflow';
 import { getScaleOption } from '../content/scales';
-import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
+import { displayMusicText, intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import { midiToPitchClass, octaveForSpellingAtMidi } from '../lib/theory/noteUtils';
 import { resolveRomanToChord } from '../lib/theory/roman';
 import type { ExerciseMode, Phrase, ScalePrompt } from '../types/music';
@@ -195,12 +195,12 @@ function ScaleHudRow({ label, scaleDisplay, variant }: {
       <span className="notation-scale-tag">{label}</span>
       <span className="notation-scale-summary">
         <span className="notation-scale-main">
-          <strong className="notation-scale-root">{scaleDisplay.rootPitchClass}</strong>
-          {scaleDisplay.primaryLabel ? <strong className="notation-scale-primary">{scaleDisplay.primaryLabel}</strong> : null}
+          <strong className="notation-scale-root">{displayMusicText(scaleDisplay.rootPitchClass)}</strong>
+          {scaleDisplay.primaryLabel ? <strong className="notation-scale-primary">{displayMusicText(scaleDisplay.primaryLabel)}</strong> : null}
         </span>
         {alternateText ? (
           <span className="notation-scale-alternates">
-            {scaleDisplay.primaryLabel ? `/ ${alternateText}` : alternateText}
+            {scaleDisplay.primaryLabel ? `/ ${displayMusicText(alternateText)}` : displayMusicText(alternateText)}
           </span>
         ) : null}
       </span>
@@ -214,7 +214,7 @@ function scaleDisplayForStep(phrase: Phrase, stepIndex: number): ScaleDisplay | 
     return null;
   }
 
-  const rootPitchClass = resolveRomanToChord(phrase.tonic, step.roman).rootPitchClass;
+  const rootPitchClass = resolveRomanToChord(phrase.tonic, step.roman).rootSpelling;
   const labels = unique([...step.recommendedScaleIds, ...step.colorScaleIds]).map((scaleId) => getScaleOption(scaleId).label);
 
   return {
@@ -621,7 +621,7 @@ export function NotationStrip({
         const xPos = entry.staveNote.getAbsoluteX() - 16;
         context.setFont(`${chordLabelFontSize(exerciseMode)}px ${CANVAS_SERIF_FONT}`);
         context.setFillStyle(entry.eventColor);
-        context.fillText(entry.token.symbol, xPos, chordLabelY);
+        context.fillText(displayMusicText(entry.token.symbol), xPos, chordLabelY);
       });
     }
   }, [
@@ -637,6 +637,48 @@ export function NotationStrip({
     themeAttributeVersion,
     isTouchLandscape,
   ]);
+
+  // Scale the finished SVG to fill the strip, capped at MAX_NOTATION_SCALE.
+  // Runs on every render and on strip resizes; uses the SVG viewBox so the
+  // aspect ratio is preserved.
+  useEffect(() => {
+    const canvas = containerRef.current;
+    if (!canvas) {
+      return undefined;
+    }
+
+    const fit = () => {
+      const svg = canvas.querySelector('svg');
+      const viewBox = svg?.getAttribute('viewBox');
+      if (!svg || !viewBox) {
+        return;
+      }
+
+      const [, , naturalWidth, naturalHeight] = viewBox.split(/\s+/).map(Number);
+      const strip = canvas.parentElement;
+      const availableHeight = strip?.clientHeight || naturalHeight;
+      const availableWidth = canvas.clientWidth || naturalWidth;
+      if (availableHeight <= 0 || availableWidth <= 0) {
+        return;
+      }
+
+      const scale = Math.min(MAX_NOTATION_SCALE, availableWidth / naturalWidth, availableHeight / naturalHeight);
+      svg.setAttribute('width', String(Math.round(naturalWidth * scale)));
+      svg.setAttribute('height', String(Math.round(naturalHeight * scale)));
+    };
+
+    fit();
+    if (typeof ResizeObserver === 'undefined') {
+      return undefined;
+    }
+
+    const observer = new ResizeObserver(fit);
+    observer.observe(canvas);
+    if (canvas.parentElement) {
+      observer.observe(canvas.parentElement);
+    }
+    return () => observer.disconnect();
+  });
 
   if (exerciseMode === 'scale' && !scalePrompt) {
     return (
@@ -662,8 +704,8 @@ export function NotationStrip({
             <span className="notation-scale-tag">Now</span>
             <span className="notation-scale-summary">
               <span className="notation-scale-main">
-                <strong className="notation-scale-root">{scalePrompt.tonic}</strong>
-                <strong className="notation-scale-primary">{getScaleOption(scalePrompt.scaleId).label}</strong>
+                <strong className="notation-scale-root">{displayMusicText(scalePrompt.tonic)}</strong>
+                <strong className="notation-scale-primary">{displayMusicText(getScaleOption(scalePrompt.scaleId).label)}</strong>
               </span>
             </span>
           </p>
@@ -679,3 +721,5 @@ export function NotationStrip({
     </div>
   );
 }
+
+const MAX_NOTATION_SCALE = 1.8;
