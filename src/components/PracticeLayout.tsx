@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useState } from 'react';
-import { keySignatureForRoot } from '../content/keys';
 import { getScaleOption } from '../content/scales';
 import type { MicConnectionState } from '../lib/audio/micAccess';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
+import { displaySpelling } from '../lib/theory/noteUtils';
 import type {
   CircleVisualizationMode,
   CurriculumPresetId,
@@ -166,55 +166,6 @@ function SettingsIcon() {
       />
       <circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
     </svg>
-  );
-}
-
-const TREBLE_SHARP_Y_POSITIONS = [16, 25, 13, 22, 31, 19, 28] as const;
-const TREBLE_FLAT_Y_POSITIONS = [28, 19, 31, 22, 34, 25, 37] as const;
-const KEY_SIGNATURE_VIEWBOX_WIDTH = 56;
-
-function KeySignatureStaff({ tonic }: { tonic: string | null }) {
-  const signature = tonic ? keySignatureForRoot(tonic) : null;
-  if (!signature) {
-    return null;
-  }
-
-  const symbol = signature.symbol === 'flat' ? '♭' : '♯';
-  const label = signature.count === 0
-    ? 'no accidentals'
-    : `${signature.count} ${signature.symbol}${signature.count === 1 ? '' : 's'}`;
-  const yPositions = signature.symbol === 'flat' ? TREBLE_FLAT_Y_POSITIONS : TREBLE_SHARP_Y_POSITIONS;
-  const lineStartX = 4;
-  const lineEndX = KEY_SIGNATURE_VIEWBOX_WIDTH - 4;
-  const accidentalStepX = 6;
-  const accidentalSpan = signature.count > 1 ? (signature.count - 1) * accidentalStepX : 0;
-  const accidentalStartX = (KEY_SIGNATURE_VIEWBOX_WIDTH / 2) - (accidentalSpan / 2);
-
-  return (
-    <span className="key-signature-staff" role="img" aria-label={`Treble key signature: ${label}`}>
-      <svg className="key-signature-svg" viewBox={`0 0 ${KEY_SIGNATURE_VIEWBOX_WIDTH} 48`} aria-hidden="true" focusable="false">
-        {[16, 22, 28, 34, 40].map((y) => (
-          <line
-            key={`staff-line-${y}`}
-            className="key-signature-line"
-            x1={lineStartX}
-            y1={y}
-            x2={lineEndX}
-            y2={y}
-          />
-        ))}
-        {Array.from({ length: signature.count }, (_, index) => (
-          <text
-            key={`key-signature-${signature.symbol}-${index}`}
-            x={accidentalStartX + (index * accidentalStepX)}
-            y={yPositions[index]}
-            className={`key-signature-glyph ${signature.symbol}`.trim()}
-          >
-            {symbol}
-          </text>
-        ))}
-      </svg>
-    </span>
   );
 }
 
@@ -478,7 +429,7 @@ export function PracticeLayout({
 
           <div className="topbar-nav-center">
             <div className="topbar-nav-row">
-              <div className="walkthrough-anchor">
+              <div className="walkthrough-anchor nav-progression-slot">
                 <button
                   type="button"
                   className={`nav-progression ${walkthroughStep === 'exercise' ? 'walkthrough-target' : ''}`.trim()}
@@ -509,7 +460,7 @@ export function PracticeLayout({
                 ) : null}
               </div>
 
-              <div className="walkthrough-anchor">
+              <div className="walkthrough-anchor nav-key-slot">
                 <button
                   type="button"
                   className={`nav-key ${walkthroughStep === 'key' ? 'walkthrough-target' : ''}`.trim()}
@@ -521,8 +472,7 @@ export function PracticeLayout({
                   }}
                   aria-label="Choose current key"
                 >
-                  in&nbsp;<strong>{tonicLabel}</strong>
-                  <KeySignatureStaff tonic={scalePrompt?.tonic ?? phrase?.tonic ?? null} />
+                  in {tonicLabel === '—' ? '—' : displaySpelling(tonicLabel)}
                 </button>
                 {walkthroughStep === 'key' && walkthroughMessage ? (
                   <WalkthroughBubble

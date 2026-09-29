@@ -1,4 +1,4 @@
-import { normalizePitchClass } from '../lib/theory/noteUtils';
+import { displaySpelling, normalizePitchClass } from '../lib/theory/noteUtils';
 import {
   CIRCLE_INTERVAL_COLORS_IN_FIFTHS_ORDER,
   CIRCLE_INTERVAL_LABELS_IN_FIFTHS_ORDER,
@@ -146,7 +146,7 @@ export function CircleOfFifths({
                 textAnchor="middle"
                 className={`circle-label ${isIncluded ? '' : 'is-muted'}`.trim()}
               >
-                {root}
+                {displaySpelling(root)}
               </text>
             </g>
           );

@@ -71,7 +71,7 @@ import { loadRemoteProgress, saveRemoteProgress } from './lib/auth/progressSync'
 import { getSupabaseClient, isSupabaseConfigured } from './lib/auth/supabaseClient';
 import { buildProgressionMasterySummaries, MASTERY_MIN_ATTEMPTS } from './lib/progressionMastery';
 import { createDefaultProgressState, loadProgressState, normalizeProgressState, pushAttempt, pushSession, saveProgressState } from './lib/storage/progressStore';
-import { median, midiToPitchClass } from './lib/theory/noteUtils';
+import { displaySpelling, median, midiToPitchClass } from './lib/theory/noteUtils';
 import { preferredCenterForClef, registerForClef } from './lib/theory/voicingPlacement';
 import { buildChordToken } from './lib/theory/chordToken';
 import { orderedVoicingFamilies } from './lib/voicingFamilies';
@@ -177,7 +177,7 @@ function pct(value: number): string {
 }
 
 function formatIncludedKeysLabel(roots: string[]): string {
-  return roots.length > 0 ? roots.join(', ') : 'None selected.';
+  return roots.length > 0 ? roots.map(displaySpelling).join(', ') : 'None selected.';
 }
 
 function authRedirectUrl(): string {

@@ -1,6 +1,8 @@
 .practice-topbar {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* minmax(0, auto): the navigator grows to its content when there is room and
+     shrinks (ellipsis on the progression) when space is tight. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
   align-items: center;
   gap: var(--s-4);
   height: 48px;
@@ -35,8 +37,23 @@
 .topbar-nav-row {
   display: flex;
   align-items: baseline;
-  gap: var(--s-2);
+  gap: 12px;
   min-width: 0;
+  max-width: 100%;
+}
+
+/* The progression shrinks and truncates; the key label keeps its natural width.
+   Doubled class specificity: walkthrough.css sets .walkthrough-anchor { width: 100% }
+   and loads after this file. */
+.walkthrough-anchor.nav-progression-slot {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.walkthrough-anchor.nav-key-slot {
+  width: auto;
+  flex: 0 0 auto;
 }
 
 .nav-progression {
@@ -47,7 +64,7 @@
   color: var(--ink);
   padding: 0 var(--s-2);
   min-height: 0;
-  max-width: 340px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -61,9 +78,11 @@
   padding: 0 var(--s-1);
   min-height: 0;
   white-space: nowrap;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
+}
+
+.nav-key:hover {
+  background: transparent;
+  color: var(--ink);
 }
 
 .topbar-nav-sub {
@@ -72,7 +91,7 @@
   color: var(--ink-2);
   padding: 0 var(--s-2);
   min-height: 0;
-  max-width: 420px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -141,34 +160,4 @@
 
 .stats-value.is-bad {
   color: var(--bad);
-}
-
-/* Key signature staff beside the key name. */
-.key-signature-staff {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.6rem;
-  min-width: 2.6rem;
-  transform: translateY(0.1em);
-}
-
-.key-signature-svg {
-  display: block;
-  height: 1.6em;
-  width: 2.6rem;
-  overflow: visible;
-}
-
-.key-signature-line {
-  stroke: var(--ink-3);
-  stroke-width: 0.94;
-}
-
-.key-signature-glyph {
-  fill: var(--ink-2);
-  font-family: 'Bravura Text', 'Noto Music', 'Segoe UI Symbol', 'Times New Roman', serif;
-  font-size: 11.2px;
-  text-anchor: middle;
-  dominant-baseline: middle;
 }

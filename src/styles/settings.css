@@ -324,15 +324,8 @@
 }
 
 @media (pointer: coarse) {
-  /* Doubled class specificity: responsive.css pads this drawer below 980px. */
-  .settings-overlay.settings-overlay {
-    padding: 0;
-  }
-
-  .settings-drawer.settings-drawer {
+  .settings-drawer {
     width: 100%;
-    height: 100%;
-    min-height: 100%;
     border-left: 0;
   }
 

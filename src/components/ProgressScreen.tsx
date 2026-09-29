@@ -8,11 +8,10 @@ import {
 import { humanizeSnakeCase, progressionRomanSummary, progressionSubtitle } from '../lib/progressionLabels';
 import type { CurriculumPresetId, ProgressionDefinition } from '../types/music';
 import type { ProgressState, SessionRecord } from '../types/progress';
-import { ThemeToggle } from './ThemeToggle';
 
 interface ProgressScreenProps {
   progress: ProgressState;
-  theme: 'light' | 'dark' | 'focus';
+  theme: 'light' | 'dark';
   onBack: () => void;
   onToggleTheme: () => void;
 }
@@ -325,7 +324,36 @@ export function ProgressScreen({ progress, theme, onBack, onToggleTheme }: Progr
         <header className="progress-header">
           <h1 className="progress-title">Practice Profile</h1>
           <div className="progress-header-actions">
-            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              onClick={onToggleTheme}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                {theme === 'light' ? (
+                  <path
+                    d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ) : (
+                  <>
+                    <circle cx="12" cy="12" r="4.25" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                    <path
+                      d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </>
+                )}
+              </svg>
+            </button>
             <button type="button" className="progress-quiet-button" onClick={onBack}>Back to Practice</button>
           </div>
         </header>
