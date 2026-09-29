@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sound Lab — modal-muscle-memory</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem;
+        box-sizing: border-box;
+        background: #f5f2ec;
+        color: #222;
+      }
+      header {
+        text-align: center;
+      }
+      h1 {
+        font-size: 1.2rem;
+        margin: 0 0 0.25rem;
+      }
+      #status {
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+      #controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      select,
+      button {
+        font: inherit;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        border: 1px solid #b9b2a6;
+        background: white;
+        cursor: pointer;
+      }
+      button:active {
+        background: #e6e1d7;
+      }
+      #keyboard {
+        position: relative;
+        display: flex;
+        width: min(680px, 94vw);
+        height: 170px;
+        user-select: none;
+        touch-action: none;
+      }
+      .key {
+        position: relative;
+        border: 1px solid #444;
+        border-radius: 0 0 5px 5px;
+        background: #fdfdfb;
+        flex: 1;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 6px;
+        font-size: 0.65rem;
+        color: #777;
+        touch-action: none;
+      }
+      .key.black {
+        position: absolute;
+        top: 0;
+        height: 62%;
+        background: #222;
+        color: transparent;
+        z-index: 2;
+        border-radius: 0 0 4px 4px;
+      }
+      .key.active {
+        background: #d98f4e;
+      }
+      .key.black.active {
+        background: #b06f31;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Sound Lab</h1>
+      <div id="status">Tap any key to unlock audio.</div>
+    </header>
+    <div id="controls">
+      <select id="instrument" aria-label="Instrument"></select>
+      <button id="chord" type="button">Play C major 7</button>
+    </div>
+    <div id="keyboard"></div>
+    <script type="module" src="/src/sound-lab/main.ts"></script>
+  </body>
+</html>
