@@ -1,0 +1,209 @@
+.exercise-picker-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: 5.4rem 1rem 1rem;
+  background: color-mix(in srgb, var(--overlay) 82%, transparent);
+  backdrop-filter: blur(4px);
+  z-index: 18;
+}
+
+.exercise-picker-window {
+  width: min(620px, 100%);
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 1.05rem;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-muted) 100%);
+  box-shadow: 0 22px 56px rgba(24, 18, 10, 0.24);
+  padding: 0.95rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.exercise-picker-window-wide {
+  width: min(900px, 100%);
+}
+
+.exercise-picker-window-compact {
+  max-height: min(82vh, 860px);
+  padding: 0.72rem;
+  gap: 0.62rem;
+}
+
+.exercise-picker-window-content {
+  width: min(980px, 100%);
+  max-height: min(88vh, 940px);
+  padding: 0.62rem;
+  gap: 0.56rem;
+}
+
+.exercise-picker-window-compact .settings-section {
+  padding: 0.68rem;
+  gap: 0.5rem;
+}
+
+.exercise-picker-window-content .settings-section {
+  padding: 0.58rem;
+  gap: 0.44rem;
+}
+
+.exercise-picker-window-compact .settings-section-copy {
+  gap: 0.14rem;
+}
+
+.exercise-picker-window-content .settings-section-copy {
+  gap: 0.12rem;
+}
+
+.exercise-picker-window-compact .settings-pill-row {
+  gap: 0.38rem;
+}
+
+.exercise-picker-window-content .settings-pill-row {
+  gap: 0.34rem;
+}
+
+.exercise-picker-window-content .settings-lane-grid {
+  gap: 0.45rem;
+}
+
+.exercise-picker-window-content .settings-lane-card {
+  min-height: 76px;
+  gap: 0.18rem;
+}
+
+.exercise-picker-content-top {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+  gap: 0.56rem;
+  align-items: start;
+}
+
+.exercise-picker-practice-mode {
+  align-content: start;
+}
+
+.practice-mode-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.24rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.24rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 62%, var(--surface-strong) 38%);
+}
+
+.practice-mode-toggle-option {
+  min-height: 34px;
+  padding: 0.2rem 0.9rem;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.practice-mode-toggle-option.active {
+  background: color-mix(in srgb, var(--accent) 84%, white 16%);
+  color: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 88%, black 12%);
+}
+
+.practice-mode-toggle-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+
+.exercise-picker-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.exercise-picker-header h3 {
+  font-size: 1rem;
+}
+
+.exercise-picker-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.exercise-picker-circle .circle-panel {
+  width: min(100%, 408px);
+  margin-inline: auto;
+}
+
+.exercise-picker-window-compact .exercise-picker-circle .circle-panel {
+  width: min(100%, 372px);
+  min-height: 286px;
+  padding: 0.5rem;
+}
+
+.exercise-picker-window-compact .exercise-picker-circle .circle-panel svg {
+  width: min(100%, 306px);
+}
+
+.exercise-picker-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.8rem;
+}
+
+.exercise-picker-pill {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.8rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface-strong) 84%, transparent);
+  text-align: left;
+}
+
+.exercise-picker-pill.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.exercise-picker-pill.mastered .exercise-picker-pill-meta strong {
+  color: color-mix(in srgb, var(--ok) 82%, var(--ink));
+}
+
+.exercise-picker-pill-copy,
+.exercise-picker-pill-meta {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.exercise-picker-pill-copy {
+  min-width: 0;
+}
+
+.exercise-picker-pill-copy strong,
+.exercise-picker-pill-meta strong {
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.exercise-picker-pill-copy span,
+.exercise-picker-pill-meta span {
+  font-size: 0.79rem;
+  color: var(--ink-soft);
+}
+
+.exercise-picker-pill-meta {
+  justify-items: end;
+  text-align: right;
+  white-space: nowrap;
+}

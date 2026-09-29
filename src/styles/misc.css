@@ -1,0 +1,26 @@
+.manual-advance-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--surface-muted);
+}
+
+.manual-advance-hint {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+html[data-immersive='true'] .manual-advance-hint {
+  font-size: 0.94rem;
+}
+
+.manual-advance-button {
+  flex: 0 0 auto;
+  padding-inline: 0.95rem;
+  font-weight: 700;
+}
