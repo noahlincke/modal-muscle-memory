@@ -68,3 +68,11 @@ export function intervalColorForTonicAndRoot(
   const label = intervalLabelForTonicAndRoot(tonic, chordRoot);
   return label ? INTERVAL_COLOR_BY_LABEL[label] : fallback;
 }
+
+/** ASCII spellings stay internal; user-facing text renders real accidentals. */
+export function displayMusicText(text: string): string {
+  return text
+    .replace(/([A-G])b/g, '$1♭')
+    .replace(/(^|[\s0-9])b(?=\d)/g, '$1♭')
+    .replace(/#/g, '♯');
+}

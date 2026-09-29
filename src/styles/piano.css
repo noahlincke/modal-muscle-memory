@@ -51,56 +51,51 @@
 
 .scale-guide {
   display: grid;
-  gap: 2px;
-  padding-top: 2px;
 }
 
 .scale-guide-row {
   position: relative;
-  height: 19px;
+  height: 17px;
 }
 
 .scale-guide-marker {
   position: absolute;
   bottom: 0;
   transform: translateX(-50%);
-  width: 0;
-  height: 19px;
-  color: var(--ink-2);
-  overflow: visible;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 17px;
+  padding-bottom: 5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.scale-guide-marker.is-next {
+  opacity: 0.62;
 }
 
 .scale-guide-marker::after {
   content: '';
   position: absolute;
-  left: 0;
+  left: 50%;
   bottom: 0;
   width: 1px;
-  height: 8px;
+  height: 5px;
   background: currentColor;
   opacity: 0.3;
 }
 
-.scale-guide-marker.next {
-  opacity: 0.66;
-}
-
 .scale-guide-label {
-  position: absolute;
-  left: 50%;
-  bottom: 7px;
-  transform: translateX(-50%);
+  position: relative;
   display: inline-block;
   text-align: center;
-  font-size: 13px;
-  font-family: var(--font-ui);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.01em;
-}
-
-.scale-guide-label.has-accidental {
   font-size: 11px;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .scale-guide-body {
@@ -128,6 +123,7 @@
 .piano-stage {
   position: relative;
   height: 96px;
+  border-top: 1px solid var(--line);
 }
 
 .piano-stage.is-playable {
@@ -172,6 +168,7 @@
 .piano-key.white {
   height: 100%;
   background: var(--key-white);
+  border-right: 1px solid var(--key-white-shade);
   box-shadow: inset 0 -2px 0 var(--key-white-shade);
 }
 
@@ -208,6 +205,8 @@
   background: var(--bad);
 }
 
+/* Scale bands sit as 3px strips at the top edge so they never cover the
+   octave labels at the bottom of the keys. */
 .key-scale-band {
   position: absolute;
   left: 2px;
@@ -216,33 +215,29 @@
 }
 
 .key-scale-band.next {
-  top: 3px;
-  height: 4px;
+  top: 0;
+  height: 3px;
   background: var(--next-scale-color);
-  opacity: 0.76;
+  opacity: 0.62;
 }
 
 .key-scale-band.current {
-  left: 3px;
-  right: 3px;
-  bottom: 4px;
-  height: 9px;
+  top: 4px;
+  height: 3px;
   background: var(--current-scale-color);
   opacity: 0.92;
 }
 
 .piano-key.black .key-scale-band.next {
-  top: 2px;
+  top: 0;
   left: 1px;
   right: 1px;
-  height: 3px;
 }
 
 .piano-key.black .key-scale-band.current {
+  top: 4px;
   left: 2px;
   right: 2px;
-  bottom: 5px;
-  height: 7px;
 }
 
 .piano-key.is-hit-correct .key-scale-band,
