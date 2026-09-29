@@ -1,106 +1,285 @@
+/* Self-hosted Source Serif 4, variable (wght 400-600), latin subset. See public/fonts/OFL.txt. */
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/SourceSerif4-Variable-latin.woff2') format('woff2-variations');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
 
 html {
-  background: radial-gradient(circle at 10% 8%, var(--bg-glow-warm) 0, transparent 32%),
-    radial-gradient(circle at 94% 0, var(--bg-glow-cool) 0, transparent 30%),
-    linear-gradient(165deg, var(--bg), var(--bg-2));
+  background: var(--bg);
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: transparent;
+  background: var(--bg);
   color: var(--ink);
-  transition: background-color 180ms ease, color 180ms ease;
 }
 
 #root {
-  max-width: 1260px;
-  margin: 0 auto;
-  height: 100vh;
-  padding: 0.7rem;
-}
-
-html[data-immersive='true'] #root {
-  max-width: none;
-  padding: 0.28rem;
+  height: 100dvh;
 }
 
 h1,
 h2,
 h3,
+p,
 strong {
-  font-family: 'Space Grotesk', sans-serif;
   margin: 0;
-  color: var(--ring);
+  font-family: inherit;
+  font-weight: inherit;
+  color: inherit;
 }
 
-p {
-  margin: 0;
+h1,
+h2,
+h3 {
+  font-weight: 600;
 }
+
+/* Sentence-case 12px label for the few places a caption still helps. */
+.eyebrow {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* --- Controls --------------------------------------------------------- */
 
 button {
-  border: 1px solid var(--line);
-  background: var(--button-bg);
-  color: var(--ink);
-  padding: 0.5rem 0.8rem;
-  border-radius: 0.6rem;
+  appearance: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
   font: inherit;
+  min-height: var(--control-h);
+  padding: 0 var(--s-3);
   cursor: pointer;
-  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease);
 }
 
 button:hover {
-  border-color: var(--button-hover-border);
-}
-
-button.primary {
-  background: var(--accent);
-  color: #fff;
-  border-color: #003c9a;
-}
-
-button.accent {
-  background: var(--accent-2);
-  color: #fff;
-  border-color: #c4550a;
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
+  background: transparent;
 }
 
-.progress-screen,
-.practice-screen {
-  background: var(--shell);
-  border: 1px solid var(--line);
-  border-radius: 1rem;
-  box-shadow: 0 14px 44px var(--shadow);
-  backdrop-filter: blur(6px);
-  padding: 1.2rem;
-  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+button.primary {
+  background: var(--ink);
+  color: var(--bg);
 }
 
-.eyebrow {
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 0.77rem;
-  color: var(--ink-soft);
+button.primary:hover {
+  background: var(--ink);
+  color: var(--bg);
 }
 
-.practice-screen {
-  display: grid;
-  gap: 0.6rem;
-  height: calc(100vh - 1.4rem);
-  grid-template-rows: auto auto minmax(0, 1fr);
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.icon-button {
+  width: var(--control-h);
+  min-width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-button[aria-pressed='true'] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* Segmented control: one hairline box, square-ish segments, ink fill on selection. */
+.seg {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--control-h);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
   overflow: hidden;
 }
 
-html[data-immersive='true'] .practice-screen {
-  height: calc(100vh - 0.56rem);
-  padding: 0.9rem;
-  gap: 0.72rem;
+.seg-option {
+  border-radius: 0;
+  min-height: 0;
+  height: auto;
+  padding: 0 var(--s-3);
+  border: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.seg-option + .seg-option {
+  border-left: 1px solid var(--line);
+}
+
+.seg-option[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.seg-option[aria-pressed='true']:hover {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.seg-fill {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.seg-fill .seg-option {
+  flex: 1 1 0;
+  padding-inline: var(--s-2);
+}
+
+/* Switch: the one allowed rounded shape. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  transition: background-color 120ms var(--ease), border-color 120ms var(--ease);
+}
+
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: transform 120ms var(--ease);
+}
+
+.switch input:checked + .switch-track {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px);
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Stepper: - 78 + with an editable tabular number. */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.stepper-button {
+  width: 26px;
+  min-width: 26px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.stepper-value {
+  width: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  padding: 0;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.stepper-value::-webkit-outer-spin-button,
+.stepper-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepper-value:focus-visible {
+  outline-offset: -2px;
+}
+
+/* --- Screens ---------------------------------------------------------- */
+
+.practice-screen {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100dvh;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.progress-screen {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
