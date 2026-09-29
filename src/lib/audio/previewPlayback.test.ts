@@ -148,7 +148,8 @@ describe('PreviewPlayback', () => {
 
     expect(toneState.clickSynths).toHaveLength(1);
     expect(toneState.volumes).toHaveLength(1);
-    expect(toneState.startCalls).toBe(1);
+    // Context unlock moved to audioUnlock; prepare no longer calls Tone.start().
+    expect(toneState.startCalls).toBe(0);
     // The phrase voicing reached the shared player on each run.
     const phraseNoteOns = player.noteOnCalls.filter((call) => call.velocity === 0.45);
     expect(phraseNoteOns).toHaveLength(8);

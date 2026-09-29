@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react';
 import { Midi } from 'tonal';
+import { unlockAudio } from '../lib/audio/audioUnlock';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import type { ExerciseMode, ScalePrompt } from '../types/music';
 import { midiToPitchClass } from '../lib/theory/noteUtils';
@@ -248,6 +249,8 @@ export function PianoView({
     const count = noteCountsRef.current.get(midi) ?? 0;
     noteCountsRef.current.set(midi, count + 1);
     if (count === 0) {
+      // Synchronous WebKit audio unlock; must precede the note trigger.
+      unlockAudio();
       onNoteOnRef.current?.(midi, velocity);
       setPressedMidis((previous) => new Set(previous).add(midi));
     }

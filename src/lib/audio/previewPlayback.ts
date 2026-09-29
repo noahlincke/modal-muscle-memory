@@ -64,8 +64,9 @@ export class PreviewPlayback {
   }
 
   private async doPrepare(): Promise<void> {
+    // Context unlock is handled synchronously by audioUnlock in the gesture
+    // path; clicks scheduled while suspended start once the context runs.
     const Tone = await loadTone();
-    await Tone.start();
     this.tone = Tone;
     this.clickOut = new Tone.Volume(this.clickVolumeDb).toDestination();
     this.clickSynth = new Tone.MembraneSynth({

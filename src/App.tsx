@@ -24,6 +24,7 @@ import { RotateHint } from './components/RotateHint';
 import { ProgressScreen } from './components/ProgressScreen';
 import type { WalkthroughStep } from './components/WalkthroughBubble';
 import { createMicFallbackState, microphonePermissionGranted, MicAccessController, type MicConnectionState } from './lib/audio/micAccess';
+import { setupAudioUnlock, unlockAudio } from './lib/audio/audioUnlock';
 import { createInstrument, volumeToDb, type InstrumentId, type InstrumentPlayer } from './lib/audio/instruments';
 import { Metronome } from './lib/audio/metronome';
 import type { PitchObservation } from './lib/audio/pitchDetection';
@@ -690,6 +691,10 @@ export default function App() {
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  // Preload Tone and hook capture-phase gesture listeners so the first tap can
+  // unlock WebKit's suspended AudioContext synchronously.
+  useEffect(() => setupAudioUnlock(), []);
 
   useEffect(() => () => {
     if (scaleAdvanceTimerRef.current !== null) {
@@ -2118,6 +2123,8 @@ export default function App() {
         return;
       }
 
+      unlockAudio();
+
       const controlAction = qwertyControlActionForKey(event.key);
       if (controlAction) {
         event.preventDefault();
@@ -2288,6 +2295,8 @@ export default function App() {
       return;
     }
 
+    unlockAudio();
+
     const requestId = ++previewRequestIdRef.current;
     const shouldResumeMetronome = isRunningRef.current && progressRef.current.settings.metronomeEnabled;
     metronomeRef.current.stop();
@@ -2312,6 +2321,8 @@ export default function App() {
   }, [currentMetronomeBeatOffset, ensureInstrumentPlayer, phrase, scalePrompt]);
 
   const toggleMetronome = useCallback(() => {
+    unlockAudio();
+
     const enabled = !progressRef.current.settings.metronomeEnabled;
 
     const next = {
@@ -2395,6 +2406,8 @@ export default function App() {
   }, [commitProgress]);
 
   const previewInstrument = useCallback(() => {
+    unlockAudio();
+
     const player = ensureInstrumentPlayer();
     if (instrumentPreviewTimeoutRef.current !== null) {
       window.clearTimeout(instrumentPreviewTimeoutRef.current);

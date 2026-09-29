@@ -186,17 +186,6 @@ class ToneInstrument implements InstrumentPlayer {
     }
   }
 
-  /**
-   * Tone.start() resumes the AudioContext; it must run inside a user gesture.
-   * noteOn always originates from one, so every noteOn retries it — before the
-   * context runs, scheduled notes simply wait in the (suspended) context queue.
-   */
-  private resumeAudio(): void {
-    void loadTone()
-      .then((Tone) => Tone.start())
-      .catch(() => {});
-  }
-
   private enqueue(command: () => void): void {
     if (this.synth) {
       command();
@@ -219,8 +208,9 @@ class ToneInstrument implements InstrumentPlayer {
     return this.synth as Voice;
   }
 
+  // Audio unlock lives in audioUnlock (it must run synchronously inside the
+  // user gesture); notes scheduled on a suspended context start when it runs.
   noteOn(midi: number, velocity: number = DEFAULT_VELOCITY, time?: number): void {
-    this.resumeAudio();
     this.held.set(midi, velocity);
     this.enqueue(() => {
       if (!this.held.has(midi) && !this.sustained.has(midi)) {

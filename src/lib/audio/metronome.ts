@@ -52,7 +52,8 @@ export class Metronome {
     const Tone = await loadTone();
     this.tone = Tone;
 
-    await Tone.start();
+    // Context unlock is handled synchronously by audioUnlock in the gesture
+    // path; clicks scheduled while suspended start once the context runs.
     Tone.Transport.cancel(0);
     this.out = new Tone.Volume(this.volumeDb).toDestination();
     this.synth = new Tone.MembraneSynth({
