@@ -10,6 +10,7 @@ import {
 } from '../../content/curriculum';
 import { normalizeIncludedKeyRoots, rootsForKeySet } from '../../content/keys';
 import { getPackForLane } from '../../content/packs';
+import { DEFAULT_INSTRUMENT, type InstrumentId } from '../audio/instruments';
 import type { ExerciseMode, ModeLane, RhythmCellId, RhythmSelection, VoicingFamily } from '../../types/music';
 import type {
   AttemptRecord,
@@ -192,6 +193,18 @@ function normalizeInputMode(value: unknown): InputMode {
   return value === 'midi' || value === 'qwerty' || value === 'mic' ? value : 'touch';
 }
 
+const INSTRUMENT_IDS: ReadonlyArray<InstrumentId> = ['upright', 'grand', 'epiano', 'synth'];
+
+function normalizeInstrument(value: unknown): InstrumentId {
+  return INSTRUMENT_IDS.includes(value as InstrumentId) ? (value as InstrumentId) : DEFAULT_INSTRUMENT;
+}
+
+function normalizeVolume(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(1, Math.max(0, value))
+    : fallback;
+}
+
 function normalizeStaffClef(value: unknown): StaffClef {
   return value === 'bass' ? 'bass' : 'treble';
 }
@@ -201,6 +214,9 @@ function defaultSettings(): UserSettings {
   return {
     tempo: 78,
     metronomeEnabled: true,
+    instrument: DEFAULT_INSTRUMENT,
+    volume: 0.8,
+    metronomeVolume: 0.6,
     showKeyboardPanel: true,
     practiceTrackingMode: 'test',
     scaleGuideLabelMode: 'degrees',
@@ -362,6 +378,9 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
       scaleGuideLabelMode: normalizeScaleGuideLabelMode(rawSettings.scaleGuideLabelMode),
       circleVisualizationMode: normalizeCircleVisualizationMode(rawSettings.circleVisualizationMode),
       inputMode: normalizeInputMode(rawSettings.inputMode),
+      instrument: normalizeInstrument(rawSettings.instrument),
+      volume: normalizeVolume(rawSettings.volume, defaults.settings.volume),
+      metronomeVolume: normalizeVolume(rawSettings.metronomeVolume, defaults.settings.metronomeVolume),
       playInputNotes: rawSettings.playInputNotes !== false,
     },
     unlocksByLane: unlocks,

@@ -10,6 +10,7 @@ import {
   type PotentialPhraseVariant,
 } from '../lib/engine/phraseGenerator';
 import type { MicConnectionState } from '../lib/audio/micAccess';
+import { INSTRUMENTS, type InstrumentId } from '../lib/audio/instruments';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { progressionRomanSummary, progressionSubtitle } from '../lib/progressionLabels';
 import { VOICING_FAMILY_LABELS } from '../lib/voicingFamilies';
@@ -48,6 +49,10 @@ interface PracticeSettingsDrawerProps {
   onSelectMidiInput: (inputId: string | null) => void;
   onEnableMicrophone: () => void;
   onTogglePlayInputNotes: () => void;
+  onSelectInstrument: (instrument: InstrumentId) => void;
+  onPreviewInstrument: () => void;
+  onChangeVolume: (volume: number) => void;
+  onChangeMetronomeVolume: (volume: number) => void;
 }
 
 const INPUT_MODE_OPTIONS: Array<{ value: InputMode; label: string; help: string }> = [
@@ -109,6 +114,10 @@ export function PracticeSettingsDrawer({
   onSelectMidiInput,
   onEnableMicrophone,
   onTogglePlayInputNotes,
+  onSelectInstrument,
+  onPreviewInstrument,
+  onChangeVolume,
+  onChangeMetronomeVolume,
 }: PracticeSettingsDrawerProps) {
   const [emailInput, setEmailInput] = useState('');
   const [potentialDetailsOpen, setPotentialDetailsOpen] = useState(false);
@@ -380,6 +389,68 @@ export function PracticeSettingsDrawer({
 
         <section className="settings-section">
           <div className="settings-section-copy">
+            <h3>Sound</h3>
+            <p>Pick the instrument used for your notes and reference playback.</p>
+          </div>
+          <select
+            className="settings-text-input"
+            aria-label="Instrument"
+            value={progress.settings.instrument}
+            onChange={(event) => onSelectInstrument(event.target.value as InstrumentId)}
+          >
+            {INSTRUMENTS.map((instrument) => (
+              <option key={instrument.id} value={instrument.id}>{instrument.label}</option>
+            ))}
+          </select>
+          <p className="settings-meta">
+            {INSTRUMENTS.find((instrument) => instrument.id === progress.settings.instrument)?.description}
+          </p>
+          <div className="settings-actions">
+            <button type="button" onClick={onPreviewInstrument}>Preview sound</button>
+          </div>
+          <div className="settings-slider-stack">
+            <div className="settings-slider-copy">
+              <strong>Volume</strong>
+              <span>{Math.round(progress.settings.volume * 100)}%</span>
+            </div>
+            <input
+              className="settings-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={progress.settings.volume}
+              onChange={(event) => onChangeVolume(Number(event.target.value))}
+              aria-label="Master volume"
+            />
+            <div className="settings-range-labels" aria-hidden="true">
+              <span>Quiet</span>
+              <span>Loud</span>
+            </div>
+          </div>
+          <div className="settings-slider-stack">
+            <div className="settings-slider-copy">
+              <strong>Metronome volume</strong>
+              <span>{Math.round(progress.settings.metronomeVolume * 100)}%</span>
+            </div>
+            <input
+              className="settings-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={progress.settings.metronomeVolume}
+              onChange={(event) => onChangeMetronomeVolume(Number(event.target.value))}
+              aria-label="Metronome volume"
+            />
+            <div className="settings-range-labels" aria-hidden="true">
+              <span>Quiet</span>
+              <span>Loud</span>
+            </div>
+          </div>
+        </section>
+        <section className="settings-section">
+          <div className="settings-section-copy">
             <h3>Input</h3>
             <p>Choose how you play notes. Only the selected mode listens.</p>
           </div>
@@ -507,6 +578,16 @@ export function PracticeSettingsDrawer({
               ) : null}
           </section>
         ) : null}
+
+        <p className="settings-meta">
+          <a
+            href={`${import.meta.env.BASE_URL}sounds/CREDITS.md`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Sound credits
+          </a>
+        </p>
 
       </aside>
     </div>

@@ -1,3 +1,4 @@
+import type { InstrumentId } from '../lib/audio/instruments';
 import type { CircleVisualizationMode, FlashcardFlowMode, ImprovisationAdvanceMode, ScaleFlowMode } from './music';
 import type {
   ContentBlockId,
@@ -79,6 +80,9 @@ export type InputMode = 'touch' | 'midi' | 'qwerty' | 'mic';
 export interface UserSettings {
   tempo: number;
   metronomeEnabled: boolean;
+  instrument: InstrumentId;
+  volume: number;
+  metronomeVolume: number;
   showKeyboardPanel: boolean;
   practiceTrackingMode: 'test' | 'play';
   scaleGuideLabelMode: 'degrees' | 'note_names' | 'hidden';

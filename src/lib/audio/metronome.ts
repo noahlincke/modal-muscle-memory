@@ -3,6 +3,14 @@ import { loadTone } from './toneLoader';
 const QUARTER_NOTE_EPSILON = 0.0001;
 export const METRONOME_START_DELAY_SECONDS = 0.01;
 
+/** One click convention everywhere: beat 1 of the bar (index % 4 === 0) is the higher pitch. */
+const CLICK_ACCENT_PITCH = 'C5';
+const CLICK_NORMAL_PITCH = 'C4';
+
+export function clickPitchForBeat(beatIndex: number): string {
+  return beatIndex % 4 === 0 ? CLICK_ACCENT_PITCH : CLICK_NORMAL_PITCH;
+}
+
 interface MetronomeStartOptions {
   beatOffsetBeats?: number;
   onBeat?: (beatIndex: number) => void;
@@ -26,6 +34,10 @@ export function metronomePhaseForBeatOffset(beatOffsetBeats = 0): {
 export class Metronome {
   private synth: import('tone').MembraneSynth | null = null;
 
+  private out: import('tone').Volume | null = null;
+
+  private volumeDb = 0;
+
   private repeatId: number | null = null;
 
   private prepared = false;
@@ -42,6 +54,7 @@ export class Metronome {
 
     await Tone.start();
     Tone.Transport.cancel(0);
+    this.out = new Tone.Volume(this.volumeDb).toDestination();
     this.synth = new Tone.MembraneSynth({
       pitchDecay: 0.01,
       octaves: 2,
@@ -51,8 +64,15 @@ export class Metronome {
         sustain: 0,
         release: 0.02,
       },
-    }).toDestination();
+    }).connect(this.out);
     this.prepared = true;
+  }
+
+  setVolume(db: number): void {
+    this.volumeDb = db;
+    if (this.out) {
+      this.out.volume.value = db;
+    }
   }
 
   async runCountIn(
@@ -75,9 +95,9 @@ export class Metronome {
     return new Promise<void>((resolve) => {
       let beat = 0;
       this.repeatId = Tone.Transport.scheduleRepeat((time) => {
+        this.synth?.triggerAttackRelease(clickPitchForBeat(beat), '16n', time);
+        onBeat?.(beat + 1);
         beat += 1;
-        this.synth?.triggerAttackRelease(beat % 4 === 1 ? 'C4' : 'C3', '16n', time);
-        onBeat?.(beat);
         if (beat >= totalBeats) {
           if (this.repeatId !== null) {
             Tone.Transport.clear(this.repeatId);
@@ -106,7 +126,7 @@ export class Metronome {
     const { nextQuarterIndex, startDelayBeats } = metronomePhaseForBeatOffset(options.beatOffsetBeats);
     let quarterIndex = nextQuarterIndex;
     this.repeatId = Tone.Transport.scheduleRepeat((time) => {
-      this.synth?.triggerAttackRelease(quarterIndex % 4 === 0 ? 'C4' : 'C3', '16n', time);
+      this.synth?.triggerAttackRelease(clickPitchForBeat(quarterIndex), '16n', time);
       options.onBeat?.(quarterIndex + 1);
       quarterIndex += 1;
     }, '4n', (startDelayBeats * 60) / tempo);

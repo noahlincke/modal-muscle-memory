@@ -35,6 +35,14 @@ export const INSTRUMENTS: ReadonlyArray<InstrumentInfo> = [
 
 export const DEFAULT_INSTRUMENT: InstrumentId = 'upright';
 
+/** Map a 0..1 volume setting to decibels for Tone.Volume nodes (0 is inaudible, 1 is unity). */
+export function volumeToDb(volume: number): number {
+  if (!Number.isFinite(volume) || volume <= 0) {
+    return -60;
+  }
+  return 20 * Math.log10(Math.min(1, volume));
+}
+
 /**
  * Sample coverage per instrument: one MP3 every 3 semitones named by MIDI note
  * number under `public/sounds/<id>/`. These ranges must stay in sync with

@@ -24,6 +24,7 @@ import { RotateHint } from './components/RotateHint';
 import { ProgressScreen } from './components/ProgressScreen';
 import type { WalkthroughStep } from './components/WalkthroughBubble';
 import { createMicFallbackState, microphonePermissionGranted, MicAccessController, type MicConnectionState } from './lib/audio/micAccess';
+import { createInstrument, volumeToDb, type InstrumentId, type InstrumentPlayer } from './lib/audio/instruments';
 import { Metronome } from './lib/audio/metronome';
 import type { PitchObservation } from './lib/audio/pitchDetection';
 import { PreviewPlayback } from './lib/audio/previewPlayback';
@@ -620,6 +621,27 @@ export default function App() {
 
   const metronomeRef = useRef<Metronome>(new Metronome());
   const previewRef = useRef<PreviewPlayback>(new PreviewPlayback());
+  const instrumentPlayerRef = useRef<InstrumentPlayer | null>(null);
+  const instrumentPreviewTimeoutRef = useRef<number | null>(null);
+
+  /**
+   * The one shared instrument voice for user notes and reference playback, created
+   * lazily on the first gesture that needs sound. Reads the current settings, wires
+   * master volume, and attaches the player to preview playback.
+   */
+  const ensureInstrumentPlayer = useCallback((): InstrumentPlayer => {
+    const existing = instrumentPlayerRef.current;
+    if (existing) {
+      return existing;
+    }
+
+    const settings = progressRef.current.settings;
+    const player = createInstrument(settings.instrument, { baseUrl: import.meta.env.BASE_URL });
+    player.setVolume(volumeToDb(settings.volume));
+    instrumentPlayerRef.current = player;
+    previewRef.current.setInstrumentPlayer(player);
+    return player;
+  }, []);
   const captureRef = useRef<ChordCapture>(new ChordCapture({ simultaneityWindowMs: 90 }));
   const micCaptureRef = useRef<MicCapture>(new MicCapture());
   const scaleCaptureRef = useRef<ScaleCapture>(new ScaleCapture());
@@ -771,6 +793,12 @@ export default function App() {
   useEffect(() => () => {
     previewRef.current.stopInputNotes();
     previewRef.current.stop();
+    metronomeRef.current.stop();
+    if (instrumentPreviewTimeoutRef.current !== null) {
+      window.clearTimeout(instrumentPreviewTimeoutRef.current);
+    }
+    instrumentPlayerRef.current?.dispose();
+    instrumentPlayerRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -1810,9 +1838,13 @@ export default function App() {
   const handleNoteMessage = useCallback((message: ParsedMidiMessage) => {
     if (playInputNotes) {
       if (message.type === 'note_on') {
-        void previewRef.current.playInputNote(message.noteNumber);
+        ensureInstrumentPlayer();
+        previewRef.current.playInputNote(message.noteNumber);
       } else if (message.type === 'note_off') {
         previewRef.current.releaseInputNote(message.noteNumber);
+      } else if (message.type === 'sustain') {
+        ensureInstrumentPlayer();
+        previewRef.current.setSustain(message.isDown);
       }
     }
 
@@ -1891,6 +1923,7 @@ export default function App() {
     }
   }, [
     playInputNotes,
+    ensureInstrumentPlayer,
     generateNextPhrase,
     screen,
     commitPendingAdvanceIfReady,
@@ -2192,6 +2225,35 @@ export default function App() {
     }
   }, [playInputNotes]);
 
+  // Changing instrument disposes the old shared player; the replacement is created
+  // immediately when one already exists (the drawer interaction is the gesture), or
+  // lazily on the next gesture otherwise.
+  useEffect(() => {
+    const current = instrumentPlayerRef.current;
+    if (!current) {
+      return;
+    }
+
+    previewRef.current.stop();
+    previewRef.current.stopInputNotes();
+    const settings = progressRef.current.settings;
+    const next = createInstrument(settings.instrument, { baseUrl: import.meta.env.BASE_URL });
+    next.setVolume(volumeToDb(settings.volume));
+    instrumentPlayerRef.current = next;
+    previewRef.current.setInstrumentPlayer(next);
+    current.dispose();
+  }, [progress.settings.instrument]);
+
+  useEffect(() => {
+    instrumentPlayerRef.current?.setVolume(volumeToDb(progress.settings.volume));
+  }, [progress.settings.volume]);
+
+  useEffect(() => {
+    const db = volumeToDb(progress.settings.metronomeVolume);
+    metronomeRef.current.setVolume(db);
+    previewRef.current.setClickVolume(db);
+  }, [progress.settings.metronomeVolume]);
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       if (!document.fullscreenEnabled) {
@@ -2222,6 +2284,7 @@ export default function App() {
     const requestId = ++previewRequestIdRef.current;
     const shouldResumeMetronome = isRunningRef.current && progressRef.current.settings.metronomeEnabled;
     metronomeRef.current.stop();
+    ensureInstrumentPlayer();
     if (scalePrompt) {
       await previewRef.current.playScalePrompt(scalePrompt, {
         tempo: progressRef.current.settings.tempo,
@@ -2239,7 +2302,7 @@ export default function App() {
         beatOffsetBeats: currentMetronomeBeatOffset(),
       });
     }
-  }, [currentMetronomeBeatOffset, phrase, scalePrompt]);
+  }, [currentMetronomeBeatOffset, ensureInstrumentPlayer, phrase, scalePrompt]);
 
   const toggleMetronome = useCallback(() => {
     const enabled = !progressRef.current.settings.metronomeEnabled;
@@ -2312,6 +2375,52 @@ export default function App() {
     if (!next.settings.playInputNotes) {
       previewRef.current.stopInputNotes();
     }
+  }, [commitProgress]);
+
+  const selectInstrument = useCallback((instrument: InstrumentId) => {
+    commitProgress({
+      ...progressRef.current,
+      settings: {
+        ...progressRef.current.settings,
+        instrument,
+      },
+    });
+  }, [commitProgress]);
+
+  const previewInstrument = useCallback(() => {
+    const player = ensureInstrumentPlayer();
+    if (instrumentPreviewTimeoutRef.current !== null) {
+      window.clearTimeout(instrumentPreviewTimeoutRef.current);
+    }
+    player.releaseAll();
+    // Cmaj7 voicing: C4 E4 G4 B4.
+    for (const midi of [60, 64, 67, 71]) {
+      player.noteOn(midi, 0.6);
+    }
+    instrumentPreviewTimeoutRef.current = window.setTimeout(() => {
+      instrumentPreviewTimeoutRef.current = null;
+      player.releaseAll();
+    }, 1500);
+  }, [ensureInstrumentPlayer]);
+
+  const changeVolume = useCallback((volume: number) => {
+    commitProgress({
+      ...progressRef.current,
+      settings: {
+        ...progressRef.current.settings,
+        volume,
+      },
+    });
+  }, [commitProgress]);
+
+  const changeMetronomeVolume = useCallback((metronomeVolume: number) => {
+    commitProgress({
+      ...progressRef.current,
+      settings: {
+        ...progressRef.current.settings,
+        metronomeVolume,
+      },
+    });
   }, [commitProgress]);
 
   const selectInputMode = useCallback((mode: InputMode) => {
@@ -3150,6 +3259,10 @@ export default function App() {
           onSelectMidiInput={selectMidiInput}
           onEnableMicrophone={enableMicrophone}
           onTogglePlayInputNotes={togglePlayInputNotes}
+          onSelectInstrument={selectInstrument}
+          onPreviewInstrument={previewInstrument}
+          onChangeVolume={changeVolume}
+          onChangeMetronomeVolume={changeMetronomeVolume}
         />
       ) : null}
       <RotateHint />

@@ -17,6 +17,43 @@ describe('progressStore', () => {
     expect(progress.exerciseConfig.scaleOctaveSpan).toBe(1);
     expect(progress.settings.inputMode).toBe('touch');
     expect(progress.settings.playInputNotes).toBe(true);
+    expect(progress.settings.instrument).toBe('upright');
+    expect(progress.settings.volume).toBe(0.8);
+    expect(progress.settings.metronomeVolume).toBe(0.6);
+  });
+
+  it('normalizes and clamps the sound settings', () => {
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        settings: {
+          instrument: 'epiano',
+          volume: 1.7,
+          metronomeVolume: -3,
+        },
+      }),
+    );
+
+    const loaded = loadProgressState();
+
+    expect(loaded.settings.instrument).toBe('epiano');
+    expect(loaded.settings.volume).toBe(1);
+    expect(loaded.settings.metronomeVolume).toBe(0);
+
+    window.localStorage.setItem(
+      'modal-muscle-memory-progress',
+      JSON.stringify({
+        settings: {
+          instrument: 'harpsichord',
+          volume: 'loud',
+        },
+      }),
+    );
+
+    const fallback = loadProgressState();
+
+    expect(fallback.settings.instrument).toBe('upright');
+    expect(fallback.settings.volume).toBe(0.8);
   });
 
   it('migrates a saved qwerty preference to the explicit qwerty input mode', () => {

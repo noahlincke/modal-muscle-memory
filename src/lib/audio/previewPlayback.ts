@@ -1,50 +1,73 @@
-import { Midi } from 'tonal';
 import type { Phrase, ScalePrompt } from '../../types/music';
+import type { InstrumentPlayer } from './instruments';
+import { clickPitchForBeat } from './metronome';
 import { loadTone } from './toneLoader';
 
-function createPracticeSynth(Tone: typeof import('tone')): import('tone').PolySynth<import('tone').Synth> {
-  return new Tone.PolySynth(Tone.Synth, {
-    oscillator: {
-      type: 'triangle',
-    },
-    envelope: {
-      attack: 0.02,
-      decay: 0.15,
-      sustain: 0.2,
-      release: 0.2,
-    },
-  }).toDestination();
-}
+const START_DELAY_SECONDS = 0.05;
 
+const REFERENCE_VELOCITY = 0.45;
+
+const INPUT_VELOCITY = 0.42;
+
+const CLICK_VELOCITY = 0.26;
+
+/**
+ * Reference playback (phrases, scale prompts, preview clicks) plus the facade for
+ * echoing the user's own notes. Note audio comes from the shared InstrumentPlayer
+ * attached via setInstrumentPlayer; only the click voice is owned here.
+ */
 export class PreviewPlayback {
-  private synth: import('tone').PolySynth<import('tone').Synth> | null = null;
-
-  private inputSynth: import('tone').PolySynth<import('tone').Synth> | null = null;
+  private instrumentPlayer: InstrumentPlayer | null = null;
 
   private clickSynth: import('tone').MembraneSynth | null = null;
 
-  private prepared = false;
+  private clickOut: import('tone').Volume | null = null;
+
+  private clickVolumeDb = 0;
+
+  private preparePromise: Promise<void> | null = null;
+
+  private tone: typeof import('tone') | null = null;
 
   private runId = 0;
 
-  private scheduledTimeoutIds: number[] = [];
+  private transportEventIds: number[] = [];
 
   private completionTimeoutId: number | null = null;
 
   private pendingResolve: (() => void) | null = null;
 
-  private activeInputNotes = new Set<string>();
+  private activeInputNotes = new Set<number>();
 
-  async prepare(): Promise<void> {
-    if (this.prepared) {
-      return;
+  /** Attach the app-wide instrument player (user notes and reference share one voice). */
+  setInstrumentPlayer(player: InstrumentPlayer | null): void {
+    this.instrumentPlayer = player;
+  }
+
+  setSustain(on: boolean): void {
+    this.instrumentPlayer?.setSustain(on);
+  }
+
+  setClickVolume(db: number): void {
+    this.clickVolumeDb = db;
+    if (this.clickOut) {
+      this.clickOut.volume.value = db;
     }
+  }
 
+  /** Single in-flight prepare: concurrent first uses share one promise and one click voice. */
+  private prepare(): Promise<void> {
+    if (!this.preparePromise) {
+      this.preparePromise = this.doPrepare();
+    }
+    return this.preparePromise;
+  }
+
+  private async doPrepare(): Promise<void> {
     const Tone = await loadTone();
     await Tone.start();
-    this.synth = createPracticeSynth(Tone);
-    this.inputSynth = createPracticeSynth(Tone);
-
+    this.tone = Tone;
+    this.clickOut = new Tone.Volume(this.clickVolumeDb).toDestination();
     this.clickSynth = new Tone.MembraneSynth({
       pitchDecay: 0.01,
       octaves: 2,
@@ -54,34 +77,34 @@ export class PreviewPlayback {
         sustain: 0,
         release: 0.02,
       },
-    }).toDestination();
-    this.prepared = true;
+    }).connect(this.clickOut);
   }
 
-  async playInputNote(noteNumber: number): Promise<void> {
-    await this.prepare();
-    const note = Midi.midiToNoteName(noteNumber, { sharps: true }) ?? 'C4';
-    if (this.activeInputNotes.has(note)) {
+  playInputNote(noteNumber: number): void {
+    const player = this.instrumentPlayer;
+    if (!player || this.activeInputNotes.has(noteNumber)) {
       return;
     }
 
-    this.activeInputNotes.add(note);
-    this.inputSynth?.triggerAttack(note, undefined, 0.42);
+    this.activeInputNotes.add(noteNumber);
+    player.noteOn(noteNumber, INPUT_VELOCITY);
   }
 
   releaseInputNote(noteNumber: number): void {
-    const note = Midi.midiToNoteName(noteNumber, { sharps: true }) ?? 'C4';
-    if (!this.activeInputNotes.has(note)) {
+    if (!this.activeInputNotes.has(noteNumber)) {
       return;
     }
 
-    this.activeInputNotes.delete(note);
-    this.inputSynth?.triggerRelease(note);
+    this.activeInputNotes.delete(noteNumber);
+    this.instrumentPlayer?.noteOff(noteNumber);
   }
 
   stopInputNotes(): void {
+    const notes = [...this.activeInputNotes];
     this.activeInputNotes.clear();
-    this.inputSynth?.releaseAll();
+    for (const midi of notes) {
+      this.instrumentPlayer?.noteOff(midi);
+    }
   }
 
   async playPhrase(
@@ -91,12 +114,31 @@ export class PreviewPlayback {
     } = {},
   ): Promise<void> {
     await this.prepare();
+    const player = this.instrumentPlayer;
+    const Tone = this.tone;
+    if (!player || !Tone) {
+      return;
+    }
     this.stop();
 
     const withMetronome = options.withMetronome ?? true;
     const secondsPerBeat = 60 / phrase.tempo;
     const runId = this.runId;
-    const startDelayMs = 50;
+
+    Tone.Transport.stop();
+    Tone.Transport.cancel(0);
+    Tone.Transport.bpm.value = phrase.tempo;
+
+    const schedule = (offsetSeconds: number, run: (time: number) => void): void => {
+      this.transportEventIds.push(Tone.Transport.schedule((time) => {
+        if (this.runId !== runId) {
+          return;
+        }
+        run(time);
+      }, offsetSeconds));
+    };
+
+    const totalBeats = Math.max(...phrase.events.map((event) => (event.bar - 1) * 4 + event.beat + event.durationBeats));
 
     phrase.events.forEach((event) => {
       const token = phrase.tokensById[event.chordTokenId];
@@ -104,44 +146,32 @@ export class PreviewPlayback {
         return;
       }
 
-      const notes = token.midiVoicing.map((midi) => Midi.midiToNoteName(midi, { sharps: true }) ?? 'C4');
-      const eventOffsetSeconds = ((event.bar - 1) * 4 + (event.beat - 1)) * secondsPerBeat;
+      const startOffset = ((event.bar - 1) * 4 + (event.beat - 1)) * secondsPerBeat;
       const duration = Math.max(0.25, event.durationBeats * secondsPerBeat);
-      const timeoutId = window.setTimeout(() => {
-        if (this.runId !== runId) {
-          return;
-        }
-        this.synth?.triggerAttackRelease(notes, duration, undefined, 0.45);
-      }, Math.max(0, Math.round(startDelayMs + eventOffsetSeconds * 1000)));
-      this.scheduledTimeoutIds.push(timeoutId);
-    });
+      const notes = token.midiVoicing;
 
-    const totalBeats = Math.max(...phrase.events.map((event) => (event.bar - 1) * 4 + event.beat + event.durationBeats));
+      schedule(startOffset, (time) => {
+        for (const midi of notes) {
+          player.noteOn(midi, REFERENCE_VELOCITY, time);
+        }
+      });
+      schedule(startOffset + duration, (time) => {
+        for (const midi of notes) {
+          player.noteOff(midi, time);
+        }
+      });
+    });
 
     if (withMetronome) {
       for (let beatIndex = 0; beatIndex < Math.ceil(totalBeats); beatIndex += 1) {
-        const clickPitch = beatIndex % 4 === 0 ? 'C5' : 'C4';
-        const timeoutId = window.setTimeout(() => {
-          if (this.runId !== runId) {
-            return;
-          }
-          this.clickSynth?.triggerAttackRelease(clickPitch, '16n', undefined, 0.26);
-        }, Math.max(0, Math.round(startDelayMs + beatIndex * secondsPerBeat * 1000)));
-        this.scheduledTimeoutIds.push(timeoutId);
+        schedule(beatIndex * secondsPerBeat, (time) => {
+          this.clickSynth?.triggerAttackRelease(clickPitchForBeat(beatIndex), '16n', time, CLICK_VELOCITY);
+        });
       }
     }
 
-    const waitMs = Math.ceil(startDelayMs + totalBeats * secondsPerBeat * 1000 + 120);
-    await new Promise<void>((resolve) => {
-      this.pendingResolve = resolve;
-      this.completionTimeoutId = window.setTimeout(() => {
-        if (this.runId !== runId) {
-          resolve();
-          return;
-        }
-        this.finishRun(resolve);
-      }, waitMs);
-    });
+    Tone.Transport.start();
+    this.awaitCompletion(Tone, runId, totalBeats * secondsPerBeat);
   }
 
   async playScalePrompt(
@@ -151,50 +181,55 @@ export class PreviewPlayback {
     } = {},
   ): Promise<void> {
     await this.prepare();
+    const player = this.instrumentPlayer;
+    const Tone = this.tone;
+    if (!player || !Tone) {
+      return;
+    }
     this.stop();
 
     const secondsPerBeat = 60 / (options.tempo ?? 96);
     const noteDuration = Math.max(0.18, secondsPerBeat * 0.82);
     const runId = this.runId;
-    const startDelayMs = 50;
+
+    Tone.Transport.stop();
+    Tone.Transport.cancel(0);
+    Tone.Transport.bpm.value = options.tempo ?? 96;
 
     prompt.noteSequence.forEach((note, index) => {
-      const noteName = Midi.midiToNoteName(note.midi, { sharps: true }) ?? 'C4';
-      const timeoutId = window.setTimeout(() => {
+      const startOffset = index * secondsPerBeat;
+      const midi = note.midi;
+      this.transportEventIds.push(Tone.Transport.schedule((time) => {
         if (this.runId !== runId) {
           return;
         }
-        this.synth?.triggerAttackRelease(noteName, noteDuration, undefined, 0.45);
-      }, Math.max(0, Math.round(startDelayMs + index * secondsPerBeat * 1000)));
-      this.scheduledTimeoutIds.push(timeoutId);
+        player.noteOn(midi, REFERENCE_VELOCITY, time);
+        player.noteOff(midi, time + noteDuration);
+      }, startOffset));
     });
 
-    const waitMs = Math.ceil(startDelayMs + prompt.noteSequence.length * secondsPerBeat * 1000 + 120);
-    await new Promise<void>((resolve) => {
-      this.pendingResolve = resolve;
-      this.completionTimeoutId = window.setTimeout(() => {
-        if (this.runId !== runId) {
-          resolve();
-          return;
-        }
-        this.finishRun(resolve);
-      }, waitMs);
-    });
+    Tone.Transport.start();
+    this.awaitCompletion(Tone, runId, prompt.noteSequence.length * secondsPerBeat);
   }
 
   stop(): void {
     this.runId += 1;
 
-    this.scheduledTimeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
-    this.scheduledTimeoutIds = [];
+    const Tone = this.tone;
+    if (Tone) {
+      for (const eventId of this.transportEventIds) {
+        Tone.Transport.clear(eventId);
+      }
+    }
+    this.transportEventIds = [];
 
     if (this.completionTimeoutId !== null) {
       window.clearTimeout(this.completionTimeoutId);
       this.completionTimeoutId = null;
     }
 
-    this.synth?.releaseAll();
-    this.clickSynth?.triggerRelease?.();
+    this.instrumentPlayer?.releaseAll();
+    this.clickSynth?.triggerRelease();
 
     if (this.pendingResolve) {
       const resolve = this.pendingResolve;
@@ -203,10 +238,37 @@ export class PreviewPlayback {
     }
   }
 
-  private finishRun(resolve: () => void): void {
-    this.scheduledTimeoutIds = [];
-    this.completionTimeoutId = null;
+  /**
+   * Resolve when the Transport reaches the end of the run. The Transport callback
+   * is the precise clock; the timeout is only a safety net for a Transport wiped
+   * by another owner (e.g. the metronome restarting mid-run).
+   */
+  private awaitCompletion(Tone: typeof import('tone'), runId: number, durationSeconds: number): void {
+    this.transportEventIds.push(Tone.Transport.schedule(() => {
+      if (this.runId !== runId) {
+        return;
+      }
+      this.finishRun();
+    }, durationSeconds));
+
+    const waitMs = Math.ceil(START_DELAY_SECONDS * 1000 + durationSeconds * 1000 + 1200);
+    this.completionTimeoutId = window.setTimeout(() => {
+      if (this.runId !== runId) {
+        return;
+      }
+      this.finishRun();
+    }, waitMs);
+  }
+
+  private finishRun(): void {
+    this.runId += 1;
+    this.transportEventIds = [];
+    if (this.completionTimeoutId !== null) {
+      window.clearTimeout(this.completionTimeoutId);
+      this.completionTimeoutId = null;
+    }
+    const resolve = this.pendingResolve;
     this.pendingResolve = null;
-    resolve();
+    resolve?.();
   }
 }
