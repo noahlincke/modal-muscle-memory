@@ -61,7 +61,7 @@ const DEFAULT_CENTER_MIDI = 60;
 const FINE_MIN_WHITE_KEY_WIDTH = 22;
 const COARSE_MIN_WHITE_KEY_WIDTH = 44;
 const MOUSE_VELOCITY = 0.75;
-const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-soft)';
+const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-3)';
 
 function splitGuideLabel(label: string): {
   prefixAccidental: string;
@@ -112,19 +112,6 @@ function ScaleGuideLabel({ label }: { label: string }) {
 
 function orderedGuideEntries(guideLabels: Record<string, string>): Array<[string, string]> {
   return Object.entries(guideLabels);
-}
-
-function withAlpha(hexColor: string, alpha: number): string {
-  const match = hexColor.match(/^#([0-9a-f]{6})$/i);
-  if (!match) {
-    return hexColor;
-  }
-
-  const value = match[1];
-  const red = Number.parseInt(value.slice(0, 2), 16);
-  const green = Number.parseInt(value.slice(2, 4), 16);
-  const blue = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function findNearestMidiAtOrAbove(targetMidi: number, pitchClass: string, minMidi: number, maxMidi: number): number | null {
@@ -515,17 +502,11 @@ export function PianoView({
     const style: CSSProperties = {};
 
     if (nextGuideMidiSet.has(midi) && nextScaleSet.has(pitchClass)) {
-      (style as Record<string, string>)['--next-scale-color'] = withAlpha(
-        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
-        0.76,
-      );
+      (style as Record<string, string>)['--next-scale-color'] = intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor);
     }
 
     if (currentGuideMidiSet.has(midi) && currentScaleSet.has(pitchClass)) {
-      (style as Record<string, string>)['--current-scale-color'] = withAlpha(
-        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
-        0.92,
-      );
+      (style as Record<string, string>)['--current-scale-color'] = intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor);
     }
 
     return Object.keys(style).length > 0 ? style : undefined;
@@ -739,7 +720,7 @@ export function PianoView({
       </div>
 
       {showOctaveControls ? (
-        <>
+        <div className="piano-octave-bar">
           <button
             type="button"
             className="piano-octave-button lower"
@@ -768,7 +749,7 @@ export function PianoView({
               <path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-        </>
+        </div>
       ) : null}
     </div>
   );
