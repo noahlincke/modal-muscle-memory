@@ -47,20 +47,7 @@ interface ScaleMarkerState {
 
 const WHITE_KEY_WIDTH = 42;
 const BLACK_KEY_WIDTH = 28;
-const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-soft)';
-
-function withAlpha(hexColor: string, alpha: number): string {
-  const match = hexColor.match(/^#([0-9a-f]{6})$/i);
-  if (!match) {
-    return hexColor;
-  }
-
-  const value = match[1];
-  const red = Number.parseInt(value.slice(0, 2), 16);
-  const green = Number.parseInt(value.slice(2, 4), 16);
-  const blue = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
+const COMPLETED_SCALE_MARKER_COLOR = 'var(--ink-3)';
 
 function splitGuideLabel(label: string): {
   prefixAccidental: string;
@@ -346,17 +333,11 @@ export function QwertyView({
     const style: CSSProperties = {};
 
     if (nextGuideMidiSet.has(midi) && nextScaleSet.has(pitchClass)) {
-      (style as Record<string, string>)['--next-scale-color'] = withAlpha(
-        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
-        0.76,
-      );
+      (style as Record<string, string>)['--next-scale-color'] = intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor);
     }
 
     if (currentGuideMidiSet.has(midi) && currentScaleSet.has(pitchClass)) {
-      (style as Record<string, string>)['--current-scale-color'] = withAlpha(
-        intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor),
-        0.92,
-      );
+      (style as Record<string, string>)['--current-scale-color'] = intervalColorForTonicAndRoot(tonic, pitchClass, highlightColor);
     }
 
     return Object.keys(style).length > 0 ? style : undefined;
@@ -404,6 +385,11 @@ export function QwertyView({
           </div>
         </div>
       ) : null}
+
+      <div className="qwerty-hint-row" aria-hidden="true">
+        <span>Z down</span>
+        <span>X up</span>
+      </div>
 
       <div className="qwerty-stage" style={{ width: stageWidth }}>
         <div className="piano-white-row">
@@ -496,11 +482,6 @@ export function QwertyView({
               </div>
             );
           })}
-        </div>
-
-        <div className="qwerty-corner-hint" aria-hidden="true">
-          <span>Z down</span>
-          <span>X up</span>
         </div>
       </div>
     </div>

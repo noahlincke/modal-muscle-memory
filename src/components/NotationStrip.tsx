@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Accidental, Dot, Formatter, Renderer, Stave, StaveNote, StaveTie, Voice } from 'vexflow';
 import { getScaleOption } from '../content/scales';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
@@ -19,28 +19,48 @@ interface NotationStripProps {
   theme: 'light' | 'dark' | 'focus';
 }
 
-function notationPalette(theme: NotationStripProps['theme']): {
+const TOUCH_LANDSCAPE_QUERY = '(pointer: coarse) and (orientation: landscape)';
+const CANVAS_UI_FONT = '13px system-ui, sans-serif';
+const CANVAS_SERIF_FONT = '"Source Serif 4", Georgia, serif';
+
+function resolveTokenColor(value: string): string {
+  if (typeof window === 'undefined') {
+    return value;
+  }
+
+  const match = value.match(/^var\((--[a-z0-9-]+)\)$/i);
+  if (!match) {
+    return value;
+  }
+
+  const computed = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
+  return computed || value;
+}
+
+function notationPalette(): {
   ink: string;
   completedInk: string;
 } {
-  if (theme === 'focus') {
-    return {
-      ink: '#dbe8f6',
-      completedInk: 'rgba(159, 181, 206, 0.46)',
-    };
-  }
-
-  if (theme === 'dark') {
-    return {
-      ink: '#253244',
-      completedInk: 'rgba(60, 75, 96, 0.45)',
-    };
-  }
-
   return {
-    ink: '#1f2830',
-    completedInk: 'rgba(31, 40, 45, 0.35)',
+    ink: resolveTokenColor('var(--ink)'),
+    completedInk: resolveTokenColor('var(--ink-3)'),
   };
+}
+
+function useThemeAttributeVersion(): number {
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined') {
+      return undefined;
+    }
+
+    const observer = new MutationObserver(() => setVersion((previous) => previous + 1));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
+  return version;
 }
 
 function chordLabelFontSize(exerciseMode: ExerciseMode): number {
@@ -140,17 +160,8 @@ function spelledMidiToVexKey(noteSpelling: string, midi: number): { key: string;
   };
 }
 
-function withAlpha(hexColor: string, alpha: number): string {
-  const match = hexColor.match(/^#([0-9a-f]{6})$/i);
-  if (!match) {
-    return hexColor;
-  }
-
-  const value = match[1];
-  const red = Number.parseInt(value.slice(0, 2), 16);
-  const green = Number.parseInt(value.slice(2, 4), 16);
-  const blue = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+function withAlpha(color: string, alpha: number): string {
+  return `color-mix(in srgb, ${color} ${Math.round(alpha * 100)}%, transparent)`;
 }
 
 function unique<T>(items: T[]): T[] {
@@ -226,6 +237,24 @@ export function NotationStrip({
   theme,
 }: NotationStripProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const themeAttributeVersion = useThemeAttributeVersion();
+  const touchLandscapeQuery = useMemo(
+    () => (typeof window.matchMedia === 'function' ? window.matchMedia(TOUCH_LANDSCAPE_QUERY) : null),
+    [],
+  );
+  const [isTouchLandscape, setIsTouchLandscape] = useState(() => touchLandscapeQuery?.matches ?? false);
+
+  useEffect(() => {
+    if (!touchLandscapeQuery) {
+      return undefined;
+    }
+
+    const update = () => setIsTouchLandscape(touchLandscapeQuery.matches);
+    update();
+    touchLandscapeQuery.addEventListener('change', update);
+    return () => touchLandscapeQuery.removeEventListener('change', update);
+  }, [touchLandscapeQuery]);
+
   const currentStepIndex = phrase?.events[currentEventIndex]?.progressionStepIndex ?? currentEventIndex;
   const currentScaleDisplay = useMemo(
     () => (phrase && exerciseMode === 'improvisation' ? scaleDisplayForStep(phrase, currentStepIndex) : null),
@@ -245,7 +274,7 @@ export function NotationStrip({
 
     if (exerciseMode === 'scale' && scalePrompt) {
       const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
-      const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette(theme);
+      const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette();
       const notes = scalePrompt.noteSequence;
       const barCount = Math.max(1, Math.ceil(notes.length / 4));
       const containerWidth = Math.max(containerRef.current.clientWidth, 960);
@@ -253,8 +282,8 @@ export function NotationStrip({
       const rightEdgePadding = 44;
       const width = containerWidth;
       const availableContentWidth = width - horizontalPadding - rightEdgePadding;
-      const height = 306;
-      const staveY = 96;
+      const height = isTouchLandscape ? 180 : 306;
+      const staveY = isTouchLandscape ? 62 : 96;
       const fingerLabelOffset = scalePrompt.hand === 'lh' ? 34 : -30;
       const barWeights = Array.from({ length: barCount }, (_, barIndex) => {
         const noteSlice = notes.slice(barIndex * 4, (barIndex + 1) * 4);
@@ -311,7 +340,9 @@ export function NotationStrip({
             staveNote.addModifier(new Accidental(vexKey.accidental), 0);
           }
 
-          const intervalColor = intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi));
+          const intervalColor = resolveTokenColor(
+            intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi)),
+          );
           const isCompleted = completedScaleNoteIndices.has(noteIndex);
           const isCurrent = noteIndex === currentScaleNoteIndex;
           const noteColor = isCompleted
@@ -353,7 +384,7 @@ export function NotationStrip({
           const fingerText = String(entry.finger);
           const noteHeadCenterX = (entry.staveNote.getNoteHeadBeginX() + entry.staveNote.getNoteHeadEndX()) / 2;
           const yPos = (entry.staveNote.getYs()[0] ?? staveY) + fingerLabelOffset;
-          context.setFont('14px "IBM Plex Sans", sans-serif');
+          context.setFont(CANVAS_UI_FONT);
           context.setFillStyle(notationInk);
           const xPos = noteHeadCenterX - (context.measureText(fingerText).width / 2);
           context.fillText(fingerText, xPos, yPos);
@@ -371,13 +402,13 @@ export function NotationStrip({
     const containerWidth = Math.max(containerRef.current.clientWidth, 960);
     const horizontalPadding = 52;
     const rightEdgePadding = 44;
-    const bottomHudHeight = exerciseMode === 'improvisation' ? 48 : 0;
-    const height = 306 + bottomHudHeight;
-    const staveY = 96;
-    const chordLabelY = 48;
+    const bottomHudHeight = exerciseMode === 'improvisation' && !isTouchLandscape ? 48 : 0;
+    const height = (isTouchLandscape ? 180 : 306) + bottomHudHeight;
+    const staveY = isTouchLandscape ? 62 : 96;
+    const chordLabelY = isTouchLandscape ? 30 : 48;
 
     const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
-    const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette(theme);
+    const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette();
 
     type RenderedSegment = {
       event: Phrase['events'][number];
@@ -396,7 +427,9 @@ export function NotationStrip({
       const eventIndex = phrase.events.findIndex((candidate) => candidate.id === event.id);
       const isCompleted = completedEventIds.has(event.id);
       const isCurrent = eventIndex === currentEventIndex;
-      const intervalColor = intervalColorForTonicAndRoot(phrase.tonic, token.pitchClasses[0] ?? null);
+      const intervalColor = resolveTokenColor(
+        intervalColorForTonicAndRoot(phrase.tonic, token.pitchClasses[0] ?? null),
+      );
       let eventColor = intervalColor;
 
       if (isCompleted) {
@@ -586,7 +619,7 @@ export function NotationStrip({
           return;
         }
         const xPos = entry.staveNote.getAbsoluteX() - 16;
-        context.setFont(`${chordLabelFontSize(exerciseMode)}px "IBM Plex Sans", sans-serif`);
+        context.setFont(`${chordLabelFontSize(exerciseMode)}px ${CANVAS_SERIF_FONT}`);
         context.setFillStyle(entry.eventColor);
         context.fillText(entry.token.symbol, xPos, chordLabelY);
       });
@@ -601,6 +634,8 @@ export function NotationStrip({
     clef,
     exerciseMode,
     theme,
+    themeAttributeVersion,
+    isTouchLandscape,
   ]);
 
   if (exerciseMode === 'scale' && !scalePrompt) {

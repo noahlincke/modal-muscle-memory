@@ -12,16 +12,16 @@ describe('interval ring mapping', () => {
     expect(intervalLabelForTonicAndRoot('C', 'Bb')).toBe('b7');
   });
 
-  it('returns the expected color swatches used by the circle and notation highlight', () => {
-    expect(intervalColorForTonicAndRoot('C', 'E')).toBe('#d66565');
-    expect(intervalColorForTonicAndRoot('C', 'G')).toBe('#8148ca');
+  it('returns the expected degree tokens used by the circle and notation highlight', () => {
+    expect(intervalColorForTonicAndRoot('C', 'E')).toBe('var(--deg-3)');
+    expect(intervalColorForTonicAndRoot('C', 'G')).toBe('var(--deg-5)');
   });
 
   it('maps colors relative to the phrase tonic for transposed keys', () => {
     expect(intervalLabelForTonicAndRoot('G', 'G')).toBe('1');
-    expect(intervalColorForTonicAndRoot('G', 'G')).toBe('#4554df');
+    expect(intervalColorForTonicAndRoot('G', 'G')).toBe('var(--deg-1)');
     expect(intervalLabelForTonicAndRoot('G', 'C')).toBe('4');
-    expect(intervalColorForTonicAndRoot('G', 'C')).toBe('#5f95d7');
+    expect(intervalColorForTonicAndRoot('G', 'C')).toBe('var(--deg-4)');
   });
 
   it('rotates circle roots so the current tonic is on top', () => {

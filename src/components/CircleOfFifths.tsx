@@ -2,7 +2,6 @@ import { normalizePitchClass } from '../lib/theory/noteUtils';
 import {
   CIRCLE_INTERVAL_COLORS_IN_FIFTHS_ORDER,
   CIRCLE_INTERVAL_LABELS_IN_FIFTHS_ORDER,
-  intervalColorForTonicAndRoot,
   rootsInFifthsOrderForTonic,
 } from '../lib/theory/intervalRing';
 
@@ -33,7 +32,7 @@ export function CircleOfFifths({
 
   const chordRoot = currentChordRoot ? normalizePitchClass(currentChordRoot) : null;
   const displayedRoots = rootsInFifthsOrderForTonic(currentTonic);
-  const currentRootBorderColor = intervalColorForTonicAndRoot(currentTonic, currentChordRoot, '#f97316');
+  const currentRootBorderColor = 'var(--signal)';
   const chordPitchClasses = [...new Set(currentChordPitchClasses.map((pitchClass) => normalizePitchClass(pitchClass)))];
   const tonicPitchClass = currentTonic ? normalizePitchClass(currentTonic) : null;
   const selectedTonicPitchClass = selectedTonic ? normalizePitchClass(selectedTonic) : null;
@@ -81,12 +80,10 @@ export function CircleOfFifths({
                   x2={headBaseX}
                   y2={headBaseY}
                   className={`circle-arrow-shaft ${isTonicArrow ? 'is-tonic' : ''}`.trim()}
-                  style={isTonicArrow ? { stroke: intervalColorForTonicAndRoot(currentTonic, currentTonic, '#4554df') } : undefined}
                 />
                 <path
                   d={`M ${leftX} ${leftY} L ${tip.x} ${tip.y} L ${rightX} ${rightY}`}
                   className={`circle-arrow-head ${isTonicArrow ? 'is-tonic' : ''}`.trim()}
-                  style={isTonicArrow ? { stroke: intervalColorForTonicAndRoot(currentTonic, currentTonic, '#4554df') } : undefined}
                 />
               </g>
             );

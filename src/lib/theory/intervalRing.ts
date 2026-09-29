@@ -4,18 +4,18 @@ const INTERVAL_LABEL_BY_SEMITONE = ['1', 'b2', '2', 'b3', '3', '4', '#4', '5', '
 type IntervalLabel = (typeof INTERVAL_LABEL_BY_SEMITONE)[number];
 
 const INTERVAL_COLOR_BY_LABEL: Record<IntervalLabel, string> = {
-  '1': '#4554df',
-  b2: '#9dcf56',
-  '2': '#c052c8',
-  b3: '#6ccfa6',
-  '3': '#d66565',
-  '4': '#5f95d7',
-  '#4': '#d1cf67',
-  '5': '#8148ca',
-  b6: '#66c956',
-  '6': '#bc4d93',
-  b7: '#70c6d8',
-  '7': '#d8a15f',
+  '1': 'var(--deg-1)',
+  b2: 'var(--deg-b2)',
+  '2': 'var(--deg-2)',
+  b3: 'var(--deg-b3)',
+  '3': 'var(--deg-3)',
+  '4': 'var(--deg-4)',
+  '#4': 'var(--deg-s4)',
+  '5': 'var(--deg-5)',
+  b6: 'var(--deg-b6)',
+  '6': 'var(--deg-6)',
+  b7: 'var(--deg-b7)',
+  '7': 'var(--deg-7)',
 };
 
 export const CIRCLE_ROOTS_IN_FIFTHS_ORDER = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'Db', 'Ab', 'Eb', 'Bb', 'F'] as const;
@@ -63,7 +63,7 @@ export function intervalLabelForTonicAndRoot(
 export function intervalColorForTonicAndRoot(
   tonic: string | null,
   chordRoot: string | null,
-  fallback = '#f97316',
+  fallback = 'var(--signal)',
 ): string {
   const label = intervalLabelForTonicAndRoot(tonic, chordRoot);
   return label ? INTERVAL_COLOR_BY_LABEL[label] : fallback;

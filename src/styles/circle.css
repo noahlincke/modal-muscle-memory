@@ -1,6 +1,7 @@
 .practice-sidebar {
   grid-area: circle;
   display: flex;
+  min-width: 0;
   min-height: 0;
   align-self: center;
   align-items: center;
@@ -8,49 +9,41 @@
 }
 
 .circle-panel {
-  width: min(100%, 350px);
-  border: 1px solid var(--line);
-  border-radius: 0.8rem;
-  background: var(--surface-strong);
-  padding: 0.8rem;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 314px;
 }
 
-html[data-immersive='true'] .circle-panel {
-  width: min(100%, 410px);
-  min-height: 330px;
+.circle-panel svg {
+  width: min(100%, 300px);
+  height: auto;
 }
 
 .circle-shell,
 .circle-interval-shell {
   fill: none;
-  stroke: var(--circle-shell-stroke);
-}
-
-.circle-interval-shell {
-  stroke: var(--circle-interval-stroke);
+  stroke: var(--line);
+  stroke-width: 1;
 }
 
 .circle-node {
-  fill: var(--circle-node-fill);
-  stroke: var(--circle-node-stroke);
+  fill: var(--surface);
+  stroke: var(--line-strong);
   stroke-width: 1;
 }
 
 .circle-node.is-current-root {
-  stroke-width: 2.2;
+  stroke-width: 2;
 }
 
 .circle-node.is-selected-tonic {
-  stroke: var(--accent);
-  stroke-width: 2.6;
+  stroke: var(--signal);
+  stroke-width: 2.4;
 }
 
 .circle-node.is-excluded-root {
-  opacity: 0.26;
+  opacity: 0.3;
 }
 
 .circle-node-group.is-clickable {
@@ -58,29 +51,29 @@ html[data-immersive='true'] .circle-panel {
 }
 
 .circle-node.is-clickable {
-  transition: opacity 140ms ease, stroke-width 140ms ease, transform 140ms ease;
+  transition: opacity 120ms var(--ease), stroke-width 120ms var(--ease);
 }
 
 .circle-node-group.is-clickable:hover .circle-node,
 .circle-node-group.is-clickable:focus-visible .circle-node {
   opacity: 1;
-  stroke-width: 2.1;
+  stroke-width: 2;
 }
 
 .circle-label {
-  font-size: 9px;
-  fill: var(--circle-label-ink);
+  font-size: 11px;
+  fill: var(--ink);
   pointer-events: none;
 }
 
 .circle-label.is-muted {
-  opacity: 0.42;
+  fill: var(--ink-3);
 }
 
 .circle-arrow-shaft,
 .circle-arrow-head {
-  stroke: var(--circle-subtle-ink);
-  stroke-width: 2;
+  stroke: var(--signal);
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
   fill: none;
@@ -92,22 +85,12 @@ html[data-immersive='true'] .circle-panel {
 }
 
 .interval-dot {
-  stroke: var(--circle-dot-stroke);
-  stroke-width: 0.9;
+  stroke: none;
 }
 
 .interval-label {
-  font-size: 9px;
-  fill: var(--circle-subtle-ink);
+  font-size: 11px;
+  fill: var(--ink-3);
   font-weight: 600;
   pointer-events: none;
-}
-
-.circle-panel svg {
-  width: min(100%, 336px);
-  height: auto;
-}
-
-html[data-immersive='true'] .circle-panel svg {
-  width: min(100%, 396px);
 }
