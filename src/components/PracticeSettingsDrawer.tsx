@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   PROGRESSION_FAMILY_OPTIONS,
   SCALE_FAMILY_OPTIONS,
@@ -22,6 +22,138 @@ import type {
 } from '../types/music';
 import type { ExerciseConfig, InputMode, ProgressState } from '../types/progress';
 
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+interface SegOption<T extends string> {
+  value: T;
+  label: string;
+  disabled?: boolean;
+  title?: string;
+}
+
+interface SegProps<T extends string> {
+  label: string;
+  value: T;
+  options: Array<SegOption<T>>;
+  onChange: (value: T) => void;
+  fill?: boolean;
+}
+
+function Seg<T extends string>({ label, value, options, onChange, fill = false }: SegProps<T>) {
+  return (
+    <div className={`seg ${fill ? 'seg-fill' : ''}`.trim()} role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className="seg-option"
+          aria-pressed={value === option.value}
+          disabled={option.disabled}
+          title={option.title}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface RowProps {
+  label: string;
+  help?: string;
+  children: React.ReactNode;
+}
+
+function Row({ label, help, children }: RowProps) {
+  return (
+    <div>
+      <div className="settings-row">
+        <span className="settings-row-label">{label}</span>
+        <span className="settings-row-control">{children}</span>
+      </div>
+      {help ? <p className="settings-help">{help}</p> : null}
+    </div>
+  );
+}
+
+interface SwitchRowProps {
+  label: string;
+  help?: string;
+  checked: boolean;
+  onChange: () => void;
+}
+
+function SwitchRow({ label, help, checked, onChange }: SwitchRowProps) {
+  return (
+    <div>
+      <label className="settings-row">
+        <span className="settings-row-label">{label}</span>
+        <span className="switch">
+          <input type="checkbox" checked={checked} onChange={onChange} />
+          <span className="switch-track" />
+        </span>
+      </label>
+      {help ? <p className="settings-help">{help}</p> : null}
+    </div>
+  );
+}
+
+interface CheckGroupProps<T extends string> {
+  label: string;
+  options: Array<{ value: T; label: string; disabled?: boolean }>;
+  selected: readonly T[];
+  onToggle: (value: T) => void;
+  help?: string;
+}
+
+function CheckGroup<T extends string>({ label, options, selected, onToggle, help }: CheckGroupProps<T>) {
+  return (
+    <div>
+      <p className="settings-help">{label}</p>
+      <div className="settings-check-grid">
+        {options.map((option) => (
+          <label key={option.value} className="settings-check">
+            <input
+              type="checkbox"
+              checked={selected.includes(option.value)}
+              disabled={option.disabled}
+              onChange={() => onToggle(option.value)}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+      {help ? <p className="settings-help">{help}</p> : null}
+    </div>
+  );
+}
+
+const INPUT_MODE_OPTIONS: Array<{ value: InputMode; label: string; help: string }> = [
+  { value: 'touch', label: 'Touch', help: 'Play the on-screen keyboard with fingers or mouse.' },
+  { value: 'midi', label: 'MIDI', help: 'Play a connected MIDI keyboard.' },
+  { value: 'qwerty', label: 'Keys', help: 'Play with your computer keyboard.' },
+  { value: 'mic', label: 'Mic', help: 'Sing or play into your microphone and the app hears the notes.' },
+];
+
+const RHYTHM_OPTIONS: Array<{ value: RhythmFilterId; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'block_whole', label: 'Whole Notes' },
+  { value: 'halves', label: 'Half Notes' },
+  { value: 'quarters', label: 'Quarter Notes' },
+  { value: 'charleston', label: 'Charleston' },
+  { value: 'tresillo_332', label: 'Tresillo 3-3-2' },
+  { value: 'backbeat_2_4', label: 'Backbeat 2 + 4' },
+  { value: 'push_2and_hold', label: 'Push 2& Hold' },
+  { value: 'anticipation_4and', label: 'Anticipation 4&' },
+  { value: 'push_4and_hold', label: 'Push 4& Across' },
+  { value: 'hold_from_3', label: 'Hold From 3' },
+  { value: 'offbeat_1and_3', label: 'Offbeat 1& + 3' },
+  { value: 'syncopated_2and_4', label: 'Syncopated 2& + 4' },
+  { value: 'late_pickup_4', label: 'Pickup 4' },
+  { value: 'floating_2and', label: 'Floating 2&' },
+];
+
 interface PracticeSettingsDrawerProps {
   progress: ProgressState;
   inputMode: InputMode;
@@ -33,6 +165,21 @@ interface PracticeSettingsDrawerProps {
   authEmail: string | null;
   authStatusText: string | null;
   cloudSyncState: 'offline' | 'idle' | 'sending_link' | 'syncing' | 'synced' | 'error';
+  theme: ThemeMode;
+  onSetTheme: (theme: ThemeMode) => void;
+  immersiveMode: boolean;
+  onToggleImmersiveMode: () => void;
+  keyboardVisible: boolean;
+  onToggleKeyboardVisible: () => void;
+  clef: 'treble' | 'bass';
+  onToggleClef: () => void;
+  practiceTrackingMode: 'test' | 'play';
+  onTogglePracticeTrackingMode: () => void;
+  exerciseLocked: boolean;
+  onToggleExerciseLock: () => void;
+  keyLocked: boolean;
+  onToggleKeyLock: () => void;
+  initialSection?: 'input' | null;
   onClose: () => void;
   onOpenProgress: () => void;
   onRequestEmailSignIn: (email: string) => void;
@@ -55,40 +202,6 @@ interface PracticeSettingsDrawerProps {
   onChangeMetronomeVolume: (volume: number) => void;
 }
 
-const INPUT_MODE_OPTIONS: Array<{ value: InputMode; label: string; help: string }> = [
-  { value: 'touch', label: 'Touch', help: 'Play the on-screen keyboard with fingers or mouse.' },
-  { value: 'midi', label: 'MIDI', help: 'Play a connected MIDI keyboard.' },
-  { value: 'qwerty', label: 'Computer keyboard', help: 'Play with your computer keyboard.' },
-  { value: 'mic', label: 'Microphone', help: 'Sing or play into your microphone and the app hears the notes.' },
-];
-
-const RHYTHM_OPTIONS: Array<{ value: RhythmFilterId; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'block_whole', label: 'Whole Notes' },
-  { value: 'halves', label: 'Half Notes' },
-  { value: 'quarters', label: 'Quarter Notes' },
-  { value: 'charleston', label: 'Charleston' },
-  { value: 'tresillo_332', label: 'Tresillo 3-3-2' },
-  { value: 'backbeat_2_4', label: 'Backbeat 2 + 4' },
-  { value: 'push_2and_hold', label: 'Push 2& Hold' },
-  { value: 'anticipation_4and', label: 'Anticipation 4&' },
-  { value: 'push_4and_hold', label: 'Push 4& Across' },
-  { value: 'hold_from_3', label: 'Hold From 3' },
-  { value: 'offbeat_1and_3', label: 'Offbeat 1& + 3' },
-  { value: 'syncopated_2and_4', label: 'Syncopated 2& + 4' },
-  { value: 'late_pickup_4', label: 'Pickup 4' },
-  { value: 'floating_2and', label: 'Floating 2&' },
-];
-
-function PersonIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="8" r="3.3" fill="none" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M5.8 19.2a6.2 6.2 0 0 1 12.4 0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export function PracticeSettingsDrawer({
   progress,
   inputMode,
@@ -100,6 +213,21 @@ export function PracticeSettingsDrawer({
   authEmail,
   authStatusText,
   cloudSyncState,
+  theme,
+  onSetTheme,
+  immersiveMode,
+  onToggleImmersiveMode,
+  keyboardVisible,
+  onToggleKeyboardVisible,
+  clef,
+  onToggleClef,
+  practiceTrackingMode,
+  onTogglePracticeTrackingMode,
+  exerciseLocked,
+  onToggleExerciseLock,
+  keyLocked,
+  onToggleKeyLock,
+  initialSection,
   onClose,
   onOpenProgress,
   onRequestEmailSignIn,
@@ -121,6 +249,7 @@ export function PracticeSettingsDrawer({
 }: PracticeSettingsDrawerProps) {
   const [emailInput, setEmailInput] = useState('');
   const [potentialDetailsOpen, setPotentialDetailsOpen] = useState(false);
+  const inputSectionRef = useRef<HTMLElement | null>(null);
   const isImprovisationMode = progress.exerciseConfig.mode === 'improvisation';
   const config = progress.exerciseConfig;
   const activeVoicings = useMemo(
@@ -168,6 +297,13 @@ export function PracticeSettingsDrawer({
       ])),
     };
   }, [config]);
+
+  useEffect(() => {
+    if (initialSection === 'input') {
+      inputSectionRef.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [initialSection]);
+
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
       <aside
@@ -178,96 +314,229 @@ export function PracticeSettingsDrawer({
         onClick={(event) => event.stopPropagation()}
       >
         <header className="settings-header">
-          <div>
-            <p className="eyebrow">Practice Settings</p>
-            <h2>Configure the exercise surface</h2>
-          </div>
-          <button type="button" className="icon-button settings-close" onClick={onClose} aria-label="Close settings">
+          <h2>Settings</h2>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close settings" title="Close">
             ×
           </button>
         </header>
-        <section className="settings-section">
-          <div className="settings-profile-head">
-            <span className="settings-profile-icon" aria-hidden="true">
-              <PersonIcon />
-            </span>
-            <div className="settings-section-copy">
-              <h3>Profile</h3>
-              {!authConfigured ? <p>Cloud save is disabled until Supabase env vars are configured at build time.</p> : null}
-              {authConfigured && !authEmail ? <p>Sign in to sync your progress.</p> : null}
-            </div>
-          </div>
-          <div className="settings-actions">
-            <button type="button" onClick={onOpenProgress}>View Progress</button>
-            {authConfigured && authEmail ? (
-              <>
-                <button type="button" onClick={onSyncNow}>Sync Now</button>
-                <button type="button" onClick={onSignOut}>Sign Out</button>
-              </>
-            ) : null}
-          </div>
-          {authConfigured && !authEmail ? (
-            <div className="settings-auth-row">
-              <input
-                type="email"
-                className="settings-text-input"
-                placeholder="name@example.com"
-                value={emailInput}
-                onChange={(event) => setEmailInput(event.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => onRequestEmailSignIn(emailInput.trim())}
-                disabled={emailInput.trim().length === 0 || cloudSyncState === 'sending_link'}
+
+        <section className="settings-section" id="settings-input" ref={inputSectionRef}>
+          <h3>Input</h3>
+          <Row
+            label="Input mode"
+            help={INPUT_MODE_OPTIONS.find((option) => option.value === inputMode)?.help}
+          >
+            <Seg
+              label="Input source"
+              value={inputMode}
+              options={INPUT_MODE_OPTIONS.map((option) => ({
+                value: option.value,
+                label: option.label,
+                disabled: (option.value === 'midi' && !midiState.supported)
+                  || (option.value === 'mic' && !micState.supported),
+                title: option.value === 'midi' && !midiState.supported
+                  ? 'Web MIDI isn\'t available in this browser. Use Chrome, or the iOS app (coming later).'
+                  : undefined,
+              }))}
+              onChange={onSelectInputMode}
+            />
+          </Row>
+          {!midiState.supported ? (
+            <p className="settings-help">Web MIDI isn't available in this browser. Use Chrome, or the iOS app (coming later).</p>
+          ) : null}
+          {!micState.supported ? (
+            <p className="settings-help">Microphone input is unavailable in this browser.</p>
+          ) : null}
+          {inputMode === 'midi' ? (
+            <Row
+              label="Device"
+              help={midiState.activeInputId
+                ? `Connected: ${midiState.inputs.find((input) => input.id === midiState.activeInputId)?.name ?? 'MIDI device'}`
+                : 'No MIDI devices found'}
+            >
+              <select
+                className="settings-select"
+                aria-label="MIDI device"
+                value={midiState.activeInputId ?? ''}
+                onChange={(event) => onSelectMidiInput(event.target.value || null)}
+                disabled={midiState.inputs.length === 0}
               >
-                {cloudSyncState === 'sending_link' ? 'Sending…' : 'Email Sign-In Link'}
-              </button>
-            </div>
+                {midiState.inputs.length === 0 ? (
+                  <option value="">No MIDI devices found</option>
+                ) : (
+                  midiState.inputs.map((input) => (
+                    <option key={input.id} value={input.id}>{input.name}</option>
+                  ))
+                )}
+              </select>
+            </Row>
           ) : null}
-          {authEmail ? (
-            <p className="settings-meta">Signed in as {authEmail}</p>
+          {inputMode === 'mic' && !micState.ready ? (
+            <Row
+              label="Microphone"
+              help={micState.error ? `Mic status: ${micState.error}` : 'Mic status: waiting for permission.'}
+            >
+              <button type="button" className="primary" onClick={onEnableMicrophone}>Enable microphone</button>
+            </Row>
           ) : null}
-          {authConfigured ? (
-            <p className="settings-meta">
-              Cloud sync: {cloudSyncState === 'synced'
-                ? 'Synced'
-                : cloudSyncState === 'syncing'
-                  ? 'Syncing…'
-                  : cloudSyncState === 'sending_link'
-                    ? 'Sending link…'
-                    : cloudSyncState === 'error'
-                      ? 'Error'
-                      : 'Local only'}
-            </p>
-          ) : null}
-          {authStatusText ? (
-            <p className="settings-meta">{authStatusText}</p>
+          <SwitchRow
+            label="Play my notes"
+            help="Turn off if your MIDI keyboard makes its own sound."
+            checked={progress.settings.playInputNotes}
+            onChange={onTogglePlayInputNotes}
+          />
+          {isImprovisationMode ? (
+            <Row
+              label="Chord change"
+              help={inputMode !== 'midi'
+                ? 'Connect MIDI with a sustain pedal to use Footpedal Release.'
+                : 'Footpedal Release advances only when the sustain pedal lifts after a landing chord.'}
+            >
+              <Seg
+                label="Chord change mode"
+                value={config.improvisationAdvanceMode}
+                options={[
+                  { value: 'immediate', label: 'Immediate' },
+                  { value: 'footpedal_release', label: 'Footpedal', disabled: inputMode !== 'midi' },
+                ]}
+                onChange={onSelectImprovisationAdvanceMode}
+              />
+            </Row>
           ) : null}
         </section>
 
-        <section className={`settings-micro-meta-card ${potentialDetailsOpen ? 'expanded' : ''}`.trim()}>
-          <button
-            type="button"
-            className="settings-micro-meta"
-            onClick={() => setPotentialDetailsOpen((open) => !open)}
-            aria-expanded={potentialDetailsOpen}
-            disabled={potentialPhraseVariants.length === 0}
+        <section className="settings-section">
+          <h3>Sound</h3>
+          <Row
+            label="Instrument"
+            help={INSTRUMENTS.find((instrument) => instrument.id === progress.settings.instrument)?.description}
           >
-            <span className="settings-micro-meta-copy">
-              <span className="settings-meta-label">Potential progressions</span>
-              <strong>{potentialProgressionCount.toLocaleString()}</strong>
-            </span>
-            <span className="settings-micro-meta-action">
-              {potentialPhraseVariants.length === 0
-                ? 'No phrases'
-                : potentialDetailsOpen
-                  ? 'Hide phrases'
-                  : `Show ${potentialPhraseVariants.length.toLocaleString()} phrases`}
-            </span>
-          </button>
-          {potentialDetailsOpen ? (
-            <div className="settings-potential-details">
-              <p className="settings-meta">Grouped by progression. Rhythm variants are not counted separately.</p>
+            <select
+              className="settings-select"
+              aria-label="Instrument"
+              value={progress.settings.instrument}
+              onChange={(event) => onSelectInstrument(event.target.value as InstrumentId)}
+            >
+              {INSTRUMENTS.map((instrument) => (
+                <option key={instrument.id} value={instrument.id}>{instrument.label}</option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Preview">
+            <button type="button" onClick={onPreviewInstrument}>Play a chord</button>
+          </Row>
+          <Row label={`Volume ${Math.round(progress.settings.volume * 100)}%`}>
+            <input
+              className="settings-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={progress.settings.volume}
+              onChange={(event) => onChangeVolume(Number(event.target.value))}
+              aria-label="Master volume"
+            />
+          </Row>
+          <Row label={`Metronome volume ${Math.round(progress.settings.metronomeVolume * 100)}%`}>
+            <input
+              className="settings-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={progress.settings.metronomeVolume}
+              onChange={(event) => onChangeMetronomeVolume(Number(event.target.value))}
+              aria-label="Metronome volume"
+            />
+          </Row>
+          <p className="settings-help">
+            <a href={`${import.meta.env.BASE_URL}sounds/CREDITS.md`} target="_blank" rel="noreferrer">Sound credits</a>
+          </p>
+        </section>
+
+        <section className="settings-section">
+          <h3>Practice</h3>
+          <Row
+            label="Tracking"
+            help="Test counts attempts and mastery. Play practises freely without counting progress."
+          >
+            <Seg
+              label="Practice tracking mode"
+              value={practiceTrackingMode}
+              options={[
+                { value: 'test', label: 'Test' },
+                { value: 'play', label: 'Play' },
+              ]}
+              onChange={() => onTogglePracticeTrackingMode()}
+            />
+          </Row>
+          <SwitchRow
+            label="Lock exercise"
+            help="Keep the current exercise when a new phrase is generated."
+            checked={exerciseLocked}
+            onChange={onToggleExerciseLock}
+          />
+          <SwitchRow
+            label="Lock key"
+            help="Keep the current key when a new phrase is generated."
+            checked={keyLocked}
+            onChange={onToggleKeyLock}
+          />
+          <CheckGroup
+            label="Rhythms"
+            options={RHYTHM_OPTIONS}
+            selected={config.rhythm}
+            onToggle={onSelectRhythm}
+          />
+          <CheckGroup
+            label="Voicings"
+            options={availableVoicings.map((voicing) => ({ value: voicing, label: VOICING_FAMILY_LABELS[voicing] }))}
+            selected={activeVoicings}
+            onToggle={onToggleSelectedVoicing}
+            help={activeVoicings.length > 0
+              ? `Current set: ${activeVoicings.map((voicing) => VOICING_FAMILY_LABELS[voicing]).join(', ')}`
+              : 'No compatible voicings for the current content.'}
+          />
+          <CheckGroup
+            label="Scale families"
+            options={SCALE_FAMILY_OPTIONS.map((family) => ({
+              value: family.id,
+              label: family.label,
+              disabled: !optionAvailability.scaleFamilies[family.id],
+            }))}
+            selected={config.enabledScaleFamilyIds}
+            onToggle={onToggleScaleFamily}
+            help="Filter guided and improvisation material by the scale vocab you want in play."
+          />
+          <CheckGroup
+            label="Progression families"
+            options={PROGRESSION_FAMILY_OPTIONS.map((family) => ({
+              value: family.id,
+              label: family.label,
+              disabled: !optionAvailability.progressionFamilies[family.id],
+            }))}
+            selected={config.enabledProgressionFamilyTags}
+            onToggle={onToggleProgressionFamily}
+            help="Shape the harmonic motion, from cadences and loops up to altered dominant and symmetric color."
+          />
+          <div className="settings-potential">
+            <button
+              type="button"
+              className="settings-potential-toggle"
+              onClick={() => setPotentialDetailsOpen((open) => !open)}
+              aria-expanded={potentialDetailsOpen}
+              disabled={potentialPhraseVariants.length === 0}
+            >
+              <span>Potential progressions <strong>{potentialProgressionCount.toLocaleString()}</strong></span>
+              <span className="settings-potential-action">
+                {potentialPhraseVariants.length === 0
+                  ? 'No phrases'
+                  : potentialDetailsOpen
+                    ? 'Hide phrases'
+                    : `Show ${potentialPhraseVariants.length.toLocaleString()} phrases`}
+              </span>
+            </button>
+            {potentialDetailsOpen ? (
               <div className="settings-potential-group-list">
                 {potentialProgressionGroups.map((group) => (
                   <section key={group.progression.id} className="settings-potential-group">
@@ -288,307 +557,101 @@ export function PracticeSettingsDrawer({
                   </section>
                 ))}
               </div>
-            </div>
-          ) : null}
-        </section>
-
-        <section className="settings-section">
-          <div className="settings-section-copy">
-            <h3>Rhythm</h3>
-          </div>
-          <div className="settings-pill-row">
-            {RHYTHM_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`settings-pill ${progress.exerciseConfig.rhythm.includes(option.value) ? 'active' : ''}`.trim()}
-                onClick={() => onSelectRhythm(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+            ) : null}
           </div>
         </section>
 
         <section className="settings-section">
-          <div className="settings-section-copy">
-            <h3>Voicing Focus</h3>
-            <p>{isImprovisationMode
-              ? 'Suggested from simplest to densest. Toggle the voicings you want rotating inside the current content.'
-              : (progress.exerciseConfig.mode === 'chord_flashcards'
-                ? 'Suggested from simplest to densest. In flashcards, selected voicings are all accepted ways to answer each chord.'
-                : 'Suggested from simplest to densest. Toggle the voicings you want rotating inside the current content.')}
-            </p>
-          </div>
-          <p className="settings-meta">
-            {activeVoicings.length > 0
-              ? `Current set: ${activeVoicings.map((voicing) => VOICING_FAMILY_LABELS[voicing]).join(', ')}`
-              : 'No compatible voicings for the current content.'}
-          </p>
-          <div className="settings-pill-row">
-            {availableVoicings.map((voicingFamily) => {
-              const selected = activeVoicings.includes(voicingFamily);
-
-              return (
-                <button
-                  key={voicingFamily}
-                  type="button"
-                  className={`settings-pill ${selected ? 'active' : ''}`.trim()}
-                  onClick={() => onToggleSelectedVoicing(voicingFamily)}
-                  title={VOICING_FAMILY_LABELS[voicingFamily]}
-                >
-                  {VOICING_FAMILY_LABELS[voicingFamily]}
-                </button>
-              );
-            })}
-          </div>
-          {potentialProgressionCount === 0 ? (
-            <p className="settings-meta">No compatible progressions for the current voicing selection with these content filters.</p>
-          ) : null}
-        </section>
-
-        <section className="settings-section">
-          <div className="settings-section-copy">
-            <h3>Scale Families</h3>
-            <p>Filter both guided and improvisation material by the scale vocab you want in play.</p>
-          </div>
-          <div className="settings-pill-row">
-            {SCALE_FAMILY_OPTIONS.map((family) => (
-              <button
-                key={family.id}
-                type="button"
-                className={`settings-pill ${progress.exerciseConfig.enabledScaleFamilyIds.includes(family.id) ? 'active' : ''}`.trim()}
-                disabled={!optionAvailability.scaleFamilies[family.id]}
-                onClick={() => onToggleScaleFamily(family.id)}
-              >
-                {family.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="settings-section">
-          <div className="settings-section-copy">
-            <h3>Progression Families</h3>
-            <p>Shape the harmonic motion, from cadences and loops up to altered dominant and symmetric color.</p>
-          </div>
-          <div className="settings-pill-row">
-            {PROGRESSION_FAMILY_OPTIONS.map((family) => (
-              <button
-                key={family.id}
-                type="button"
-                className={`settings-pill ${progress.exerciseConfig.enabledProgressionFamilyTags.includes(family.id) ? 'active' : ''}`.trim()}
-                disabled={!optionAvailability.progressionFamilies[family.id]}
-                onClick={() => onToggleProgressionFamily(family.id)}
-              >
-                {family.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="settings-section">
-          <div className="settings-section-copy">
-            <h3>Sound</h3>
-            <p>Pick the instrument used for your notes and reference playback.</p>
-          </div>
-          <select
-            className="settings-text-input"
-            aria-label="Instrument"
-            value={progress.settings.instrument}
-            onChange={(event) => onSelectInstrument(event.target.value as InstrumentId)}
-          >
-            {INSTRUMENTS.map((instrument) => (
-              <option key={instrument.id} value={instrument.id}>{instrument.label}</option>
-            ))}
-          </select>
-          <p className="settings-meta">
-            {INSTRUMENTS.find((instrument) => instrument.id === progress.settings.instrument)?.description}
-          </p>
-          <div className="settings-actions">
-            <button type="button" onClick={onPreviewInstrument}>Preview sound</button>
-          </div>
-          <div className="settings-slider-stack">
-            <div className="settings-slider-copy">
-              <strong>Volume</strong>
-              <span>{Math.round(progress.settings.volume * 100)}%</span>
-            </div>
-            <input
-              className="settings-range"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={progress.settings.volume}
-              onChange={(event) => onChangeVolume(Number(event.target.value))}
-              aria-label="Master volume"
+          <h3>Display</h3>
+          <Row label="Theme">
+            <Seg
+              label="Theme"
+              value={theme}
+              options={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'system', label: 'System' },
+              ]}
+              onChange={onSetTheme}
             />
-            <div className="settings-range-labels" aria-hidden="true">
-              <span>Quiet</span>
-              <span>Loud</span>
-            </div>
-          </div>
-          <div className="settings-slider-stack">
-            <div className="settings-slider-copy">
-              <strong>Metronome volume</strong>
-              <span>{Math.round(progress.settings.metronomeVolume * 100)}%</span>
-            </div>
-            <input
-              className="settings-range"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={progress.settings.metronomeVolume}
-              onChange={(event) => onChangeMetronomeVolume(Number(event.target.value))}
-              aria-label="Metronome volume"
+          </Row>
+          <Row label="Clef">
+            <Seg
+              label="Staff clef"
+              value={clef}
+              options={[
+                { value: 'treble', label: 'Treble' },
+                { value: 'bass', label: 'Bass' },
+              ]}
+              onChange={() => onToggleClef()}
             />
-            <div className="settings-range-labels" aria-hidden="true">
-              <span>Quiet</span>
-              <span>Loud</span>
-            </div>
-          </div>
+          </Row>
+          <SwitchRow
+            label="Show keyboard"
+            checked={keyboardVisible}
+            onChange={onToggleKeyboardVisible}
+          />
+          <SwitchRow
+            label="Immersive mode"
+            help="Fill the whole screen with the practice surface."
+            checked={immersiveMode}
+            onChange={onToggleImmersiveMode}
+          />
         </section>
-        <section className="settings-section">
-          <div className="settings-section-copy">
-            <h3>Input</h3>
-            <p>Choose how you play notes. Only the selected mode listens.</p>
-          </div>
-          <div className="settings-toggle-inline">
-            <strong>Input Mode</strong>
-            <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Input source">
-              {INPUT_MODE_OPTIONS.map((option) => {
-                const unsupported = option.value === 'midi' && !midiState.supported;
-                const micUnsupported = option.value === 'mic' && !micState.supported;
 
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`practice-mode-toggle-option ${inputMode === option.value ? 'active' : ''}`.trim()}
-                    aria-pressed={inputMode === option.value}
-                    disabled={unsupported || micUnsupported}
-                    title={unsupported
-                      ? 'Web MIDI isn\'t supported in this browser. Try Chrome or Edge.'
-                      : undefined}
-                    onClick={() => onSelectInputMode(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <p className="settings-meta">
-            {INPUT_MODE_OPTIONS.find((option) => option.value === inputMode)?.help}
-          </p>
-          {!midiState.supported ? (
-            <p className="settings-meta">MIDI: Web MIDI isn't supported in this browser. Try Chrome or Edge.</p>
+        <section className="settings-section">
+          <h3>Account</h3>
+          {!authConfigured ? (
+            <p className="settings-help">Cloud save is disabled until Supabase env vars are configured at build time.</p>
           ) : null}
-          {!micState.supported ? (
-            <p className="settings-meta">Microphone: microphone input is unavailable in this browser.</p>
-          ) : null}
-          {inputMode === 'midi' ? (
-            <>
-              <select
+          {authConfigured && !authEmail ? (
+            <Row label="Sign in" help="We email you a magic sign-in link.">
+              <input
+                type="email"
                 className="settings-text-input"
-                aria-label="MIDI device"
-                value={midiState.activeInputId ?? ''}
-                onChange={(event) => onSelectMidiInput(event.target.value || null)}
-                disabled={midiState.inputs.length === 0}
+                placeholder="name@example.com"
+                value={emailInput}
+                onChange={(event) => setEmailInput(event.target.value)}
+              />
+              <button
+                type="button"
+                className="primary"
+                onClick={() => onRequestEmailSignIn(emailInput.trim())}
+                disabled={emailInput.trim().length === 0 || cloudSyncState === 'sending_link'}
               >
-                {midiState.inputs.length === 0 ? (
-                  <option value="">No MIDI devices found</option>
-                ) : (
-                  midiState.inputs.map((input) => (
-                    <option key={input.id} value={input.id}>{input.name}</option>
-                  ))
-                )}
-              </select>
-              <p className="settings-meta">
-                {midiState.activeInputId
-                  ? `Connected: ${midiState.inputs.find((input) => input.id === midiState.activeInputId)?.name ?? 'MIDI device'}`
-                  : 'No MIDI devices found'}
-              </p>
-            </>
+                {cloudSyncState === 'sending_link' ? 'Sending…' : 'Email link'}
+              </button>
+            </Row>
           ) : null}
-          {inputMode === 'mic' ? (
-            micState.ready ? (
-              <p className="settings-meta">Mic status: listening.</p>
-            ) : (
+          <div className="settings-actions">
+            <button type="button" className="primary" onClick={onOpenProgress}>View Progress</button>
+            {authConfigured && authEmail ? (
               <>
-                <div className="settings-actions">
-                  <button type="button" onClick={onEnableMicrophone}>Enable microphone</button>
-                </div>
-                <p className="settings-meta">
-                  {micState.error ? `Mic status: ${micState.error}` : 'Mic status: waiting for permission.'}
-                </p>
+                <button type="button" onClick={onSyncNow}>Sync Now</button>
+                <button type="button" onClick={onSignOut}>Sign Out</button>
               </>
-            )
-          ) : null}
-          <div className="settings-toggle-inline">
-            <strong>Play my notes</strong>
-            <div className="practice-mode-toggle settings-segmented-toggle" role="tablist" aria-label="Play my notes">
-              <button
-                type="button"
-                className={`practice-mode-toggle-option ${!progress.settings.playInputNotes ? 'active' : ''}`.trim()}
-                aria-pressed={!progress.settings.playInputNotes}
-                onClick={onTogglePlayInputNotes}
-              >
-                Off
-              </button>
-              <button
-                type="button"
-                className={`practice-mode-toggle-option ${progress.settings.playInputNotes ? 'active' : ''}`.trim()}
-                aria-pressed={progress.settings.playInputNotes}
-                onClick={onTogglePlayInputNotes}
-              >
-                On
-              </button>
-            </div>
+            ) : null}
           </div>
-          <p className="settings-meta">Turn off if your MIDI keyboard makes its own sound.</p>
+          {authEmail ? (
+            <p className="settings-meta">Signed in as {authEmail}</p>
+          ) : null}
+          {authConfigured ? (
+            <p className="settings-meta">
+              Cloud sync: {cloudSyncState === 'synced'
+                ? 'Synced'
+                : cloudSyncState === 'syncing'
+                  ? 'Syncing…'
+                  : cloudSyncState === 'sending_link'
+                    ? 'Sending link…'
+                    : cloudSyncState === 'error'
+                      ? 'Error'
+                      : 'Local only'}
+            </p>
+          ) : null}
+          {authStatusText ? (
+            <p className="settings-meta">{authStatusText}</p>
+          ) : null}
         </section>
-
-        {isImprovisationMode ? (
-          <section className="settings-section">
-              <div className="settings-section-copy">
-                <h3>Chord Change</h3>
-                <p>Immediate keeps improvisation moving. Footpedal Release only advances when the sustain pedal is released right around the accepted landing chord.</p>
-              </div>
-              <div className="settings-pill-row">
-                <button
-                  type="button"
-                  className={`settings-pill ${progress.exerciseConfig.improvisationAdvanceMode === 'immediate' ? 'active' : ''}`.trim()}
-                  onClick={() => onSelectImprovisationAdvanceMode('immediate')}
-                >
-                  Immediate
-                </button>
-                <button
-                  type="button"
-                  className={`settings-pill ${progress.exerciseConfig.improvisationAdvanceMode === 'footpedal_release' ? 'active' : ''}`.trim()}
-                  disabled={inputMode !== 'midi'}
-                  onClick={() => onSelectImprovisationAdvanceMode('footpedal_release')}
-                >
-                  Footpedal Release
-                </button>
-              </div>
-              {inputMode !== 'midi' ? (
-                <p className="settings-meta">Connect MIDI with a sustain pedal to use Footpedal Release.</p>
-              ) : null}
-          </section>
-        ) : null}
-
-        <p className="settings-meta">
-          <a
-            href={`${import.meta.env.BASE_URL}sounds/CREDITS.md`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Sound credits
-          </a>
-        </p>
-
       </aside>
     </div>
   );

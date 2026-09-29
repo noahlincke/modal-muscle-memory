@@ -19,7 +19,7 @@ import {
 } from './content/keys';
 import { getScaleOption } from './content/scales';
 import { PracticeLayout } from './components/PracticeLayout';
-import { PracticeSettingsDrawer } from './components/PracticeSettingsDrawer';
+import { PracticeSettingsDrawer, type ThemeMode } from './components/PracticeSettingsDrawer';
 import { RotateHint } from './components/RotateHint';
 import { ProgressScreen } from './components/ProgressScreen';
 import type { WalkthroughStep } from './components/WalkthroughBubble';
@@ -87,7 +87,6 @@ import type { EvaluationResult, Phrase, PhraseEvent, ScaleId, ScalePrompt, Voici
 import type { AttemptRecord, InputMode, ProgressState } from './types/progress';
 
 type Screen = 'practice' | 'progress';
-type ThemeMode = 'light' | 'dark' | 'focus';
 const FOOTPEDAL_RELEASE_WINDOW_MS = 650;
 const THEME_STORAGE_KEY = 'modal-muscle-memory-theme';
 const WALKTHROUGH_STORAGE_KEY = 'modal-muscle-memory-walkthrough-seen';
@@ -158,25 +157,19 @@ function toggleCurriculumPresetContentBlocks(
 
 function loadInitialTheme(): ThemeMode {
   if (typeof window === 'undefined') {
-    return 'light';
+    return 'system';
   }
 
   const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'focus') {
+  if (savedTheme === 'light' || savedTheme === 'dark') {
     return savedTheme;
   }
-
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function nextTheme(theme: ThemeMode): ThemeMode {
-  if (theme === 'light') {
+  // 'focus' was removed; stored values migrate to dark.
+  if (savedTheme === 'focus') {
     return 'dark';
   }
-  if (theme === 'dark') {
-    return 'focus';
-  }
-  return 'light';
+
+  return 'system';
 }
 
 function pct(value: number): string {
@@ -573,7 +566,11 @@ export default function App() {
   const micDebugTraceEnabled = useMemo(() => micDebugEnabled(), []);
   const [screen, setScreen] = useState<Screen>('practice');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'input' | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => loadInitialTheme());
+  const [systemPrefersDark, setSystemPrefersDark] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches,
+  );
   const [progress, setProgress] = useState<ProgressState>(() => loadProgressState());
   const [walkthroughStep, setWalkthroughStep] = useState<WalkthroughStep | null>(() => loadInitialWalkthroughStep());
   const [authEmail, setAuthEmail] = useState<string | null>(null);
@@ -616,7 +613,6 @@ export default function App() {
   const [midiState, setMidiState] = useState<MidiConnectionState>(createMidiFallbackState());
   const [micState, setMicState] = useState<MicConnectionState>(createMicFallbackState());
   const [qwertyOctaveShift, setQwertyOctaveShift] = useState(() => defaultQwertyOctaveShiftForClef(progress.settings.staffClef));
-  const [practiceTrackingFlashToken, setPracticeTrackingFlashToken] = useState(0);
   const [micEnabled, setMicEnabled] = useState(false);
 
   const metronomeRef = useRef<Metronome>(new Metronome());
@@ -806,10 +802,21 @@ export default function App() {
   }, [isRunning]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches);
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
+
+  const resolvedTheme: 'light' | 'dark' = theme === 'system'
+    ? (systemPrefersDark ? 'dark' : 'light')
+    : theme;
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.style.colorScheme = resolvedTheme;
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
+  }, [theme, resolvedTheme]);
 
   useEffect(() => {
     document.documentElement.dataset.immersive = progress.settings.immersiveMode ? 'true' : 'false';
@@ -2672,7 +2679,6 @@ export default function App() {
   }, [commitProgress, generateSelectedPhrase, scalePrompt?.scaleId]);
 
   const selectMode = useCallback((mode: ProgressState['exerciseConfig']['mode']) => {
-    const previousPracticeTrackingMode = progressRef.current.settings.practiceTrackingMode;
     const desiredPracticeTrackingMode = mode === 'improvisation' ? 'play' : 'test';
     const desiredScaleGuideLabelMode = mode === 'improvisation'
       ? 'degrees'
@@ -2719,10 +2725,6 @@ export default function App() {
     commitProgress(next);
     setStreak(0);
     generateNextPhrase(next);
-
-    if (previousPracticeTrackingMode !== desiredPracticeTrackingMode) {
-      setPracticeTrackingFlashToken((current) => current + 1);
-    }
 
     if (desiredPracticeTrackingMode === 'test' && mode !== 'chord_flashcards' && mode !== 'scale' && isRunningRef.current) {
       void metronomeRef.current.start(next.settings.tempo, {
@@ -3114,13 +3116,13 @@ export default function App() {
     return (
       <ProgressScreen
           progress={progress}
-          theme={theme}
+          theme={resolvedTheme}
         onBack={() => {
           setScreen('practice');
           setStreak(0);
           generateNextPhrase(progressRef.current);
         }}
-        onToggleTheme={() => setTheme((currentTheme) => nextTheme(currentTheme))}
+        onToggleTheme={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
       />
     );
   }
@@ -3130,8 +3132,6 @@ export default function App() {
         <PracticeLayout
         exerciseMode={progress.exerciseConfig.mode}
         curriculumLabel={activeCurriculumPreset?.label ?? 'Custom Curriculum'}
-        practiceTrackingMode={progress.settings.practiceTrackingMode}
-        practiceTrackingFlashToken={practiceTrackingFlashToken}
         phrase={phrase}
         scalePrompt={scalePrompt}
         hasCompatiblePhrases={hasCompatiblePracticeMaterial}
@@ -3140,7 +3140,7 @@ export default function App() {
         completedEventIds={completedEventIds}
         completedScaleNoteIndices={completedScaleNoteIndices}
         currentScaleNoteIndex={currentScaleNoteIndex}
-        theme={theme}
+        theme={resolvedTheme}
         activeNotes={keyboardActiveNotes}
         minMidi={keyboardRange.min}
         maxMidi={keyboardRange.max}
@@ -3152,7 +3152,6 @@ export default function App() {
         inputMode={inputMode}
         onTouchNoteOn={inputMode === 'touch' ? handleTouchNoteOn : undefined}
         onTouchNoteOff={inputMode === 'touch' ? handleTouchNoteOff : undefined}
-        canStepKey={allowedRoots.length > 1 && Boolean(progress.exerciseConfig.mode === 'scale' ? scalePrompt : phrase)}
         qwertyOctaveShift={qwertyOctaveShift}
         tempo={progress.settings.tempo}
         keyboardTargetNotes={keyboardTargetNotes}
@@ -3172,33 +3171,19 @@ export default function App() {
             : {})}
         scaleGuideLabelMode={progress.settings.scaleGuideLabelMode}
         circleVisualizationMode={progress.settings.circleVisualizationMode}
-        immersiveMode={progress.settings.immersiveMode}
         notationVisible={notationVisible}
         showFlashcardScaffolding={showFlashcardScaffolding}
         keyboardVisible={effectiveKeyboardVisible}
         metronomeEnabled={progress.settings.metronomeEnabled}
         onTempoChange={setTempo}
-        onToggleKeyboardVisible={toggleKeyboardVisible}
-        onTogglePracticeTrackingMode={togglePracticeTrackingMode}
         onToggleScaleGuideLabelMode={toggleScaleGuideLabelMode}
         onToggleCircleVisualizationMode={toggleCircleVisualizationMode}
-        onToggleImmersiveMode={toggleImmersiveMode}
-        onToggleClef={toggleClef}
-        canStepCurriculum={CURRICULUM_PRESETS.length > 1}
-        onStepCurriculumBackward={() => stepCurriculumPreset('backward')}
-        onStepCurriculumForward={() => stepCurriculumPreset('forward')}
-        canStepMode={true}
-        onStepModeBackward={() => stepExerciseMode('backward')}
-        onStepModeForward={() => stepExerciseMode('forward')}
         canStepExercise={exercisePickerItems.length > 1 && Boolean(progress.exerciseConfig.mode === 'scale' ? scalePrompt : phrase)}
         exercisePickerItems={exercisePickerItems}
-        currentKeySetLabel={KEY_SET_OPTIONS.find((option) => option.id === progress.exerciseConfig.keySet)?.label ?? 'Custom'}
         includedKeysLabel={formatIncludedKeysLabel(allowedRoots)}
         availableKeyRoots={allowedRoots}
         keySetPickerItems={keySetPickerItems}
         curriculumPickerItems={curriculumPickerItems}
-        exerciseLocked={selectionLocks.exercise}
-        keyLocked={selectionLocks.key}
         guidedFlowMode={progress.exerciseConfig.guidedFlowMode}
         improvisationProgressionMode={progress.exerciseConfig.improvisationProgressionMode}
         flashcardFlowMode={progress.exerciseConfig.flashcardFlowMode}
@@ -3208,8 +3193,6 @@ export default function App() {
         onSelectCurrentKey={selectCurrentKey}
         onSelectKeySet={selectKeySet}
         onClearKeySet={clearKeySet}
-        onToggleExerciseLock={() => toggleSelectionLock('exercise')}
-        onToggleKeyLock={() => toggleSelectionLock('key')}
         onSelectMode={selectMode}
         onToggleCurriculumPreset={toggleCurriculumPreset}
         onSelectGuidedFlowMode={selectGuidedFlowMode}
@@ -3219,12 +3202,16 @@ export default function App() {
         onSetChainMovement={setChainMovement}
         onStepExerciseBackward={() => stepCurrentExercise('backward')}
         onStepExerciseForward={() => stepCurrentExercise('forward')}
-        onStepKeyBackward={() => stepCurrentKey('counterclockwise')}
-        onStepKeyForward={() => stepCurrentKey('clockwise')}
         onToggleMetronome={toggleMetronome}
-        onToggleTheme={() => setTheme((currentTheme) => nextTheme(currentTheme))}
         onPlayReference={playReference}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsSection(null);
+          setSettingsOpen(true);
+        }}
+        onOpenInputSettings={() => {
+          setSettingsSection('input');
+          setSettingsOpen(true);
+        }}
         walkthroughStep={walkthroughStep}
         onAdvanceWalkthrough={advanceWalkthrough}
         onDismissWalkthrough={dismissWalkthrough}
@@ -3242,6 +3229,21 @@ export default function App() {
           authEmail={authEmail}
           authStatusText={authStatusText}
           cloudSyncState={cloudSyncState}
+          theme={theme}
+          onSetTheme={setTheme}
+          immersiveMode={progress.settings.immersiveMode}
+          onToggleImmersiveMode={toggleImmersiveMode}
+          keyboardVisible={progress.settings.showKeyboardPanel}
+          onToggleKeyboardVisible={toggleKeyboardVisible}
+          clef={progress.settings.staffClef}
+          onToggleClef={toggleClef}
+          practiceTrackingMode={progress.settings.practiceTrackingMode}
+          onTogglePracticeTrackingMode={togglePracticeTrackingMode}
+          exerciseLocked={selectionLocks.exercise}
+          onToggleExerciseLock={() => toggleSelectionLock('exercise')}
+          keyLocked={selectionLocks.key}
+          onToggleKeyLock={() => toggleSelectionLock('key')}
+          initialSection={settingsSection}
           onClose={() => setSettingsOpen(false)}
           onOpenProgress={() => {
             setSettingsOpen(false);

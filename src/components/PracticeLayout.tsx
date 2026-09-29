@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { keySignatureForRoot } from '../content/keys';
 import { getScaleOption } from '../content/scales';
 import type { MicConnectionState } from '../lib/audio/micAccess';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
-import { progressionSubtitle } from '../lib/progressionLabels';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import type {
   CircleVisualizationMode,
@@ -19,7 +18,6 @@ import { CircleOfFifths } from './CircleOfFifths';
 import { NotationStrip } from './NotationStrip';
 import { PianoView } from './PianoView';
 import { QwertyView } from './QwertyView';
-import { ThemeToggle } from './ThemeToggle';
 import { WalkthroughBubble, type WalkthroughStep } from './WalkthroughBubble';
 
 interface ExercisePickerItem {
@@ -49,8 +47,6 @@ interface CurriculumPickerItem {
 interface PracticeLayoutProps {
   exerciseMode: ExerciseMode;
   curriculumLabel: string;
-  practiceTrackingMode: 'test' | 'play';
-  practiceTrackingFlashToken: number;
   phrase: Phrase | null;
   scalePrompt?: ScalePrompt | null;
   hasCompatiblePhrases: boolean;
@@ -59,7 +55,7 @@ interface PracticeLayoutProps {
   completedEventIds: Set<string>;
   completedScaleNoteIndices?: Set<number>;
   currentScaleNoteIndex?: number;
-  theme: 'light' | 'dark' | 'focus';
+  theme: 'light' | 'dark';
   activeNotes: Set<number>;
   minMidi: number;
   maxMidi: number;
@@ -71,7 +67,6 @@ interface PracticeLayoutProps {
   inputMode: InputMode;
   onTouchNoteOn?: (midi: number, velocity: number) => void;
   onTouchNoteOff?: (midi: number) => void;
-  canStepKey: boolean;
   qwertyOctaveShift: number;
   tempo: number;
   keyboardTargetNotes: number[];
@@ -83,33 +78,19 @@ interface PracticeLayoutProps {
   nextScalePitchClasses: string[];
   nextScaleGuideLabels: Record<string, string>;
   circleVisualizationMode: CircleVisualizationMode;
-  immersiveMode: boolean;
   notationVisible: boolean;
   showFlashcardScaffolding: boolean;
   keyboardVisible: boolean;
   metronomeEnabled: boolean;
   onTempoChange: (tempo: number) => void;
-  onToggleKeyboardVisible: () => void;
-  onTogglePracticeTrackingMode: () => void;
   onToggleScaleGuideLabelMode: () => void;
   onToggleCircleVisualizationMode: () => void;
-  onToggleImmersiveMode: () => void;
-  onToggleClef: () => void;
-  canStepCurriculum: boolean;
-  onStepCurriculumBackward: () => void;
-  onStepCurriculumForward: () => void;
-  canStepMode: boolean;
-  onStepModeBackward: () => void;
-  onStepModeForward: () => void;
   canStepExercise: boolean;
   exercisePickerItems: ExercisePickerItem[];
-  currentKeySetLabel: string;
   includedKeysLabel: string;
   availableKeyRoots: string[];
   keySetPickerItems: KeySetPickerItem[];
   curriculumPickerItems: CurriculumPickerItem[];
-  exerciseLocked: boolean;
-  keyLocked: boolean;
   guidedFlowMode: 'random' | 'targeting_improvement' | 'musical_chaining';
   improvisationProgressionMode: 'random' | 'targeting_improvement' | 'chained';
   flashcardFlowMode: 'random' | 'targeting_improvement' | 'mixed_recall';
@@ -119,8 +100,6 @@ interface PracticeLayoutProps {
   onSelectCurrentKey: (root: string) => void;
   onSelectKeySet: (keySetId: KeySetId) => void;
   onClearKeySet: () => void;
-  onToggleExerciseLock: () => void;
-  onToggleKeyLock: () => void;
   onSelectMode: (mode: ExerciseMode) => void;
   onToggleCurriculumPreset: (presetId: CurriculumPresetId) => void;
   onSelectGuidedFlowMode: (mode: 'random' | 'targeting_improvement' | 'musical_chaining') => void;
@@ -130,15 +109,29 @@ interface PracticeLayoutProps {
   onSetChainMovement: (chainMovement: number) => void;
   onStepExerciseBackward: () => void;
   onStepExerciseForward: () => void;
-  onStepKeyBackward: () => void;
-  onStepKeyForward: () => void;
   onToggleMetronome: () => void;
-  onToggleTheme: () => void;
   onPlayReference: () => void;
   onOpenSettings: () => void;
+  onOpenInputSettings: () => void;
   walkthroughStep: WalkthroughStep | null;
   onAdvanceWalkthrough: () => void;
   onDismissWalkthrough: () => void;
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m14.5 5.5-6.5 6.5 6.5 6.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m9.5 5.5 6.5 6.5-6.5 6.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function MetronomeIcon({ enabled }: { enabled: boolean }) {
@@ -161,62 +154,6 @@ function PlayIcon() {
   );
 }
 
-function KeyboardIcon({ visible }: { visible: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="6.5" width="18" height="11" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M6.2 10.2v7.3M9.5 10.2v7.3M12.8 10.2v7.3M16.1 10.2v7.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      {!visible ? (
-        <path d="M5.4 5.4 18.6 18.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      ) : null}
-    </svg>
-  );
-}
-
-function FullscreenIcon({ immersive }: { immersive: boolean }) {
-  if (immersive) {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M9 4.5H4.5V9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M9.2 9.2 4.8 4.8M14.8 9.2l4.4-4.4M14.8 14.8l4.4 4.4M9.2 14.8l-4.4 4.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function PracticeModeIcon({ mode }: { mode: 'test' | 'play' }) {
-  if (mode === 'play') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M8.4 6.2v8.4a2.9 2.9 0 1 0 1.8 2.7V10l7.4-1.9v4.9a2.9 2.9 0 1 0 1.8 2.7V4.8L8.4 6.2Z"
-          fill="currentColor"
-        />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M6.2 3.8h9.8l3.2 3.2v12.2a1.6 1.6 0 0 1-1.6 1.6H6.2a1.6 1.6 0 0 1-1.6-1.6V5.4a1.6 1.6 0 0 1 1.6-1.6Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="M16 3.8v4h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="m9 15.9 5.9-5.9 1.9 1.9-5.9 5.9H9v-1.9Z" fill="currentColor" />
-    </svg>
-  );
-}
-
 function SettingsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -230,28 +167,6 @@ function SettingsIcon() {
       <circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
-}
-
-function LockIcon({ locked }: { locked: boolean }) {
-  if (locked) {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M8 10V7.8a4 4 0 1 1 8 0V10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        <rect x="6.1" y="10" width="11.8" height="9.2" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 10V7.8a4 4 0 1 1 7.2 2.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <rect x="6.1" y="10" width="11.8" height="9.2" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function ClefIcon({ clef }: { clef: 'treble' | 'bass' }) {
-  return <span aria-hidden="true">{clef === 'bass' ? '𝄢' : '𝄞'}</span>;
 }
 
 const TREBLE_SHARP_Y_POSITIONS = [16, 25, 13, 22, 31, 19, 28] as const;
@@ -303,6 +218,25 @@ function KeySignatureStaff({ tonic }: { tonic: string | null }) {
   );
 }
 
+/* Quality-mark digits (V7, ii7) render as real superscript figures. */
+function RomanFigures({ roman }: { roman: string }) {
+  const match = roman.match(/^(.*?)(\d+)$/);
+  if (!match) {
+    return <>{roman}</>;
+  }
+
+  return (
+    <>
+      {match[1]}
+      <sup className="roman-figure">{match[2]}</sup>
+    </>
+  );
+}
+
+function enDashProgression(label: string): string {
+  return label.split('-').join(' – ');
+}
+
 function timingBucketLabel(bucket: EvaluationResult['timingBucket']): string {
   if (bucket === 'on_time') {
     return 'On Time';
@@ -319,7 +253,7 @@ function chordStatusLabel(evaluation: EvaluationResult | null): string {
   }
 
   const hasNonTimingError = evaluation.errors.some((error) => error.code !== 'early' && error.code !== 'late');
-  return hasNonTimingError ? 'X' : '✓';
+  return hasNonTimingError ? '✕' : '✓';
 }
 
 function FlashcardPrompt({
@@ -341,8 +275,6 @@ function FlashcardPrompt({
 export function PracticeLayout({
   exerciseMode,
   curriculumLabel,
-  practiceTrackingMode,
-  practiceTrackingFlashToken,
   phrase,
   scalePrompt = null,
   hasCompatiblePhrases,
@@ -363,7 +295,6 @@ export function PracticeLayout({
   inputMode,
   onTouchNoteOn,
   onTouchNoteOff,
-  canStepKey,
   qwertyOctaveShift,
   tempo,
   keyboardTargetNotes,
@@ -375,33 +306,19 @@ export function PracticeLayout({
   nextScalePitchClasses,
   nextScaleGuideLabels,
   circleVisualizationMode,
-  immersiveMode,
   notationVisible,
   showFlashcardScaffolding,
   keyboardVisible,
   metronomeEnabled,
   onTempoChange,
-  onToggleKeyboardVisible,
-  onTogglePracticeTrackingMode,
   onToggleScaleGuideLabelMode,
   onToggleCircleVisualizationMode,
-  onToggleImmersiveMode,
-  onToggleClef,
-  canStepCurriculum,
-  onStepCurriculumBackward,
-  onStepCurriculumForward,
-  canStepMode,
-  onStepModeBackward,
-  onStepModeForward,
   canStepExercise,
   exercisePickerItems,
-  currentKeySetLabel,
   includedKeysLabel,
   availableKeyRoots,
   keySetPickerItems,
   curriculumPickerItems,
-  exerciseLocked,
-  keyLocked,
   guidedFlowMode,
   improvisationProgressionMode,
   flashcardFlowMode,
@@ -411,8 +328,6 @@ export function PracticeLayout({
   onSelectCurrentKey,
   onSelectKeySet,
   onClearKeySet,
-  onToggleExerciseLock,
-  onToggleKeyLock,
   onSelectMode,
   onToggleCurriculumPreset,
   onSelectGuidedFlowMode,
@@ -422,29 +337,21 @@ export function PracticeLayout({
   onSetChainMovement,
   onStepExerciseBackward,
   onStepExerciseForward,
-  onStepKeyBackward,
-  onStepKeyForward,
   onToggleMetronome,
-  onToggleTheme,
   onPlayReference,
   onOpenSettings,
+  onOpenInputSettings,
   walkthroughStep,
   onAdvanceWalkthrough,
   onDismissWalkthrough,
 }: PracticeLayoutProps) {
-  const practiceTrackingFlashSeenRef = useRef(practiceTrackingFlashToken);
   const hasPrimaryPrompt = Boolean(phrase || scalePrompt);
   const currentEvent = phrase ? phrase.events[currentEventIndex] : null;
   const currentToken = currentEvent ? phrase?.tokensById[currentEvent.chordTokenId] ?? null : null;
   const isScaleMode = exerciseMode === 'scale';
-  const progressionLabel = isScaleMode
-    ? (scalePrompt ? getScaleOption(scalePrompt.scaleId).label : '—')
-    : (phrase
-      ? phrase.progression.steps.map((step) => step.roman).join('-')
-      : '—');
-  const progressionSubtitleLabel = isScaleMode
-    ? (scalePrompt ? `${scalePrompt.hand.toUpperCase()} · ${scalePrompt.direction.replace('_', ' / ')}` : null)
-    : (phrase ? progressionSubtitle(phrase.progression.id) : null);
+  const progressionSteps = isScaleMode
+    ? (scalePrompt ? [getScaleOption(scalePrompt.scaleId).label] : [])
+    : (phrase ? phrase.progression.steps.map((step) => step.roman) : []);
   const tonicLabel = scalePrompt?.tonic ?? phrase?.tonic ?? '—';
 
   const timingLabel = latestEvaluation ? timingBucketLabel(latestEvaluation.timingBucket) : '—';
@@ -460,18 +367,20 @@ export function PracticeLayout({
   const isFlashcardMode = exerciseMode === 'chord_flashcards';
   const isStandalonePromptMode = isFlashcardMode || isScaleMode;
   const [tempoInput, setTempoInput] = useState(() => String(tempo));
-  const [dismissedQwertyWarning, setDismissedQwertyWarning] = useState(false);
-  const [isPracticeTrackingFlashing, setIsPracticeTrackingFlashing] = useState(false);
   const [openPicker, setOpenPicker] = useState<'exercise' | 'key' | 'content' | null>(null);
-  const inputWarning = inputMode === 'qwerty'
-    ? 'QWERTY mode pinned'
-    : (inputMode === 'mic'
-      ? (micState.error ?? (micState.ready ? 'Mic active' : 'Mic waiting for permission'))
-      : (inputMode === 'midi' ? (midiState.error ?? null) : null));
-  const showDismissibleQwertyWarning = inputMode === 'qwerty' && !dismissedQwertyWarning;
-  const showPersistentInputWarning = inputMode === 'mic'
-    ? Boolean(inputWarning)
-    : inputMode === 'midi' && Boolean(inputWarning);
+  const midiDeviceName = midiState.activeInputId
+    ? midiState.inputs.find((input) => input.id === midiState.activeInputId)?.name ?? null
+    : null;
+  const inputLabel = inputMode === 'touch'
+    ? 'Touch'
+    : inputMode === 'midi'
+      ? (midiDeviceName ? `MIDI · ${midiDeviceName}` : 'MIDI')
+      : inputMode === 'qwerty' ? 'Keys' : 'Mic';
+  const inputDotState = inputMode === 'touch' || inputMode === 'qwerty'
+    ? 'ready'
+    : inputMode === 'midi'
+      ? (midiState.error ? 'error' : (midiState.ready ? 'ready' : 'idle'))
+      : (micState.error ? 'error' : (micState.ready ? 'ready' : 'idle'));
   const keyboardLaneIsLabelCycleTarget = exerciseMode === 'improvisation';
   const keyboardLaneLabel = scaleGuideLabelMode === 'degrees'
     ? 'Scale guides shown as interval numbers. Click keyboard to show note names.'
@@ -489,39 +398,19 @@ export function PracticeLayout({
   const contentPickerOpen = openPicker === 'content';
   const walkthroughActive = walkthroughStep !== null;
   const walkthroughMessage = walkthroughStep === 'exercise'
-    ? 'Click to change current progression.'
+    ? 'Click the progression to choose a different exercise. The chevrons step through what is available.'
     : walkthroughStep === 'key'
-      ? 'This shows the current key and signature. The side buttons move around the active key set.'
+      ? 'This is the current key and its signature. Click it to move around the circle of fifths.'
       : walkthroughStep === 'content'
-        ? 'This area controls curriculum and practice mode. The stacked side buttons step each independently.'
+        ? 'This line opens curriculum and practice mode.'
         : walkthroughStep === 'settings'
-          ? 'This opens profile, progress, and deeper practice controls when you need them.'
+          ? 'This opens the settings drawer: input, sound, practice, display, and account.'
           : null;
   const walkthroughActionLabel = walkthroughStep === 'settings' ? 'Done' : 'Next';
 
   useEffect(() => {
     setTempoInput(String(tempo));
   }, [tempo]);
-
-  useEffect(() => {
-    if (inputMode !== 'qwerty') {
-      setDismissedQwertyWarning(false);
-    }
-  }, [inputMode]);
-
-  useEffect(() => {
-    if (practiceTrackingFlashToken === 0 || practiceTrackingFlashToken === practiceTrackingFlashSeenRef.current) {
-      return undefined;
-    }
-
-    practiceTrackingFlashSeenRef.current = practiceTrackingFlashToken;
-    setIsPracticeTrackingFlashing(true);
-    const timer = window.setTimeout(() => {
-      setIsPracticeTrackingFlashing(false);
-    }, 720);
-
-    return () => window.clearTimeout(timer);
-  }, [practiceTrackingFlashToken]);
 
   useEffect(() => {
     if ((!hasPrimaryPrompt || exercisePickerItems.length === 0) && openPicker === 'exercise') {
@@ -566,85 +455,136 @@ export function PracticeLayout({
     onTempoChange(parsed);
   };
 
+  const stepTempo = (delta: number) => {
+    onTempoChange(tempo + delta);
+  };
+
   return (
     <section className="practice-screen">
       <header className="practice-topbar">
-        <div className="practice-heading">
-          <strong>Modal Muscle Memory</strong>
-        </div>
+        <span className="topbar-wordmark">Modal Muscle Memory</span>
 
-        <div className="practice-controls">
-          {showDismissibleQwertyWarning ? (
+        <nav className="topbar-nav" aria-label="Exercise navigator">
+          <button
+            type="button"
+            className="icon-button nav-chevron"
+            onClick={onStepExerciseBackward}
+            disabled={!canStepExercise}
+            aria-label="Previous exercise"
+            title="Previous exercise ( , )"
+          >
+            <ChevronLeftIcon />
+          </button>
+
+          <div className="topbar-nav-center">
+            <div className="topbar-nav-row">
+              <div className="walkthrough-anchor">
+                <button
+                  type="button"
+                  className={`nav-progression ${walkthroughStep === 'exercise' ? 'walkthrough-target' : ''}`.trim()}
+                  onClick={() => {
+                    if (walkthroughActive) {
+                      return;
+                    }
+                    setOpenPicker('exercise');
+                  }}
+                  disabled={!hasPrimaryPrompt || exercisePickerItems.length === 0}
+                  aria-label="Choose current exercise"
+                >
+                  {progressionSteps.map((step, index) => (
+                    <Fragment key={`${step}-${index}`}>
+                      {index > 0 ? <span aria-hidden="true"> – </span> : null}
+                      <RomanFigures roman={step} />
+                    </Fragment>
+                  ))}
+                  {progressionSteps.length === 0 ? '—' : null}
+                </button>
+                {walkthroughStep === 'exercise' && walkthroughMessage ? (
+                  <WalkthroughBubble
+                    message={walkthroughMessage}
+                    actionLabel={walkthroughActionLabel}
+                    onAction={onAdvanceWalkthrough}
+                    onSkip={onDismissWalkthrough}
+                  />
+                ) : null}
+              </div>
+
+              <div className="walkthrough-anchor">
+                <button
+                  type="button"
+                  className={`nav-key ${walkthroughStep === 'key' ? 'walkthrough-target' : ''}`.trim()}
+                  onClick={() => {
+                    if (walkthroughActive) {
+                      return;
+                    }
+                    setOpenPicker('key');
+                  }}
+                  aria-label="Choose current key"
+                >
+                  in&nbsp;<strong>{tonicLabel}</strong>
+                  <KeySignatureStaff tonic={scalePrompt?.tonic ?? phrase?.tonic ?? null} />
+                </button>
+                {walkthroughStep === 'key' && walkthroughMessage ? (
+                  <WalkthroughBubble
+                    message={walkthroughMessage}
+                    actionLabel={walkthroughActionLabel}
+                    onAction={onAdvanceWalkthrough}
+                    onSkip={onDismissWalkthrough}
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            <div className="walkthrough-anchor">
+              <button
+                type="button"
+                className={`topbar-nav-sub ${walkthroughStep === 'content' ? 'walkthrough-target' : ''}`.trim()}
+                onClick={() => {
+                  if (walkthroughActive) {
+                    return;
+                  }
+                  setOpenPicker('content');
+                }}
+                aria-label="Choose content"
+              >
+                {curriculumLabel} · {modeLabel}
+              </button>
+              {walkthroughStep === 'content' && walkthroughMessage ? (
+                <WalkthroughBubble
+                  message={walkthroughMessage}
+                  actionLabel={walkthroughActionLabel}
+                  onAction={onAdvanceWalkthrough}
+                  onSkip={onDismissWalkthrough}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="icon-button nav-chevron"
+            onClick={onStepExerciseForward}
+            disabled={!canStepExercise}
+            aria-label="Next exercise"
+            title="Next exercise ( . )"
+          >
+            <ChevronRightIcon />
+          </button>
+        </nav>
+
+        <div className="topbar-actions">
+          <div className="stepper" role="group" aria-label="Tempo in beats per minute">
             <button
               type="button"
-              className="midi-warning midi-warning-dismiss"
-              onClick={() => setDismissedQwertyWarning(true)}
-              title="Dismiss qwerty mode notice"
+              className="stepper-button"
+              onClick={() => stepTempo(-1)}
+              aria-label="Slower tempo"
+              title="Slower tempo"
             >
-              {inputWarning}
+              −
             </button>
-          ) : null}
-          {showPersistentInputWarning && inputWarning ? (
-            <span className="midi-warning">{inputWarning}</span>
-          ) : null}
-
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={immersiveMode ? 'Exit immersive fullscreen mode' : 'Enter immersive fullscreen mode'}
-            title={immersiveMode ? 'Exit immersive mode' : 'Enter immersive mode'}
-            onClick={onToggleImmersiveMode}
-          >
-            <FullscreenIcon immersive={immersiveMode} />
-          </button>
-
-          <button
-            type="button"
-            className={`icon-button practice-mode-indicator ${isPracticeTrackingFlashing ? 'is-auto-flashing' : ''}`.trim()}
-            aria-label={practiceTrackingMode === 'test'
-              ? 'Test mode active. Count attempts and mastery. Switch to play mode'
-              : 'Play mode active. Do not count attempts or mastery. Switch to test mode'}
-            onClick={onTogglePracticeTrackingMode}
-            title={practiceTrackingMode === 'test'
-              ? 'Test mode: count accuracy and progress'
-              : 'Play mode: free practice without counting progress'}
-          >
-            <PracticeModeIcon mode={practiceTrackingMode} />
-          </button>
-
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={keyboardVisible ? 'Hide keyboard panel' : 'Show keyboard panel'}
-            onClick={onToggleKeyboardVisible}
-            title={keyboardVisible ? 'Hide keyboard panel' : 'Show keyboard panel'}
-          >
-            <KeyboardIcon visible={keyboardVisible} />
-          </button>
-
-          <button
-            type="button"
-            className="icon-button clef-button"
-            aria-label={clef === 'bass' ? 'Switch to treble clef' : 'Switch to bass clef'}
-            onClick={onToggleClef}
-            title={clef === 'bass' ? 'Bass clef' : 'Treble clef'}
-          >
-            <ClefIcon clef={clef} />
-          </button>
-
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={metronomeEnabled ? 'Disable metronome' : 'Enable metronome'}
-            onClick={onToggleMetronome}
-          >
-            <MetronomeIcon enabled={metronomeEnabled} />
-          </button>
-
-          <label className="tempo-field" aria-label="Tempo in BPM">
             <input
+              className="stepper-value"
               type="number"
               min={40}
               max={220}
@@ -662,7 +602,27 @@ export function PracticeLayout({
                 }
               }}
             />
-          </label>
+            <button
+              type="button"
+              className="stepper-button"
+              onClick={() => stepTempo(1)}
+              aria-label="Faster tempo"
+              title="Faster tempo"
+            >
+              +
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={metronomeEnabled ? 'Disable metronome' : 'Enable metronome'}
+            aria-pressed={metronomeEnabled}
+            onClick={onToggleMetronome}
+            title="Metronome"
+          >
+            <MetronomeIcon enabled={metronomeEnabled} />
+          </button>
 
           <button
             type="button"
@@ -670,15 +630,28 @@ export function PracticeLayout({
             aria-label="Reference playback"
             onClick={onPlayReference}
             disabled={!hasPrimaryPrompt}
+            title="Play reference"
           >
             <PlayIcon />
           </button>
 
-          <div className={`walkthrough-anchor walkthrough-anchor-topbar ${walkthroughStep === 'settings' ? 'walkthrough-panel-focus' : ''}`.trim()}>
+          <button
+            type="button"
+            className="input-indicator"
+            onClick={onOpenInputSettings}
+            aria-label={`Input ${inputLabel}. Open input settings`}
+            title="Input settings"
+          >
+            <span className="input-dot" data-state={inputDotState} aria-hidden="true" />
+            <span className="input-indicator-label">{inputLabel}</span>
+          </button>
+
+          <div className="walkthrough-anchor walkthrough-anchor-topbar">
             <button
               type="button"
               className={`icon-button ${walkthroughStep === 'settings' ? 'walkthrough-target' : ''}`.trim()}
               aria-label="Practice settings"
+              title="Settings"
               onClick={() => {
                 if (walkthroughActive) {
                   return;
@@ -701,229 +674,17 @@ export function PracticeLayout({
         </div>
       </header>
 
-      <section className="practice-hud-strip">
-        <div className="hud-primary-strip">
-          <article className={`hud-primary-cell hud-primary-exercise ${walkthroughStep === 'exercise' ? 'walkthrough-panel-focus' : ''}`.trim()}>
-            <div className="hud-cell-head">
-              <p className="hud-caption">Current Exercise</p>
-              <button
-                type="button"
-                className={`hud-lock-button ${exerciseLocked ? 'is-locked' : ''}`.trim()}
-                onClick={onToggleExerciseLock}
-                disabled={!hasPrimaryPrompt}
-                aria-pressed={exerciseLocked}
-                aria-label={exerciseLocked ? 'Unlock current exercise' : 'Lock current exercise'}
-                title={exerciseLocked ? 'Exercise locked' : 'Lock current exercise'}
-              >
-                <LockIcon locked={exerciseLocked} />
-              </button>
-            </div>
-            <div className="hud-primary-exercise-row">
-              <button
-                type="button"
-                className="hud-key-step"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onStepExerciseBackward();
-                }}
-                disabled={!canStepExercise}
-                aria-label="Previous available exercise"
-              >
-                <span className="hud-key-step-glyph" aria-hidden="true">,</span>
-              </button>
-              <div className="walkthrough-anchor">
-                <button
-                  type="button"
-                  className={`hud-primary-value hud-primary-exercise-value hud-exercise-picker-trigger ${walkthroughStep === 'exercise' ? 'walkthrough-target' : ''}`.trim()}
-                  onClick={() => {
-                    if (walkthroughActive) {
-                      return;
-                    }
-                    setOpenPicker('exercise');
-                  }}
-                  disabled={!hasPrimaryPrompt || exercisePickerItems.length === 0}
-                  aria-label="Choose current exercise"
-                >
-                  <span>{progressionLabel}</span>
-                  {progressionSubtitleLabel ? <small>{progressionSubtitleLabel}</small> : null}
-                </button>
-                {walkthroughStep === 'exercise' && walkthroughMessage ? (
-                  <WalkthroughBubble
-                    message={walkthroughMessage}
-                    actionLabel={walkthroughActionLabel}
-                    onAction={onAdvanceWalkthrough}
-                    onSkip={onDismissWalkthrough}
-                  />
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="hud-key-step"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onStepExerciseForward();
-                }}
-                disabled={!canStepExercise}
-                aria-label="Next available exercise"
-              >
-                <span className="hud-key-step-glyph" aria-hidden="true">.</span>
-              </button>
-            </div>
-          </article>
-
-          <article className={`hud-primary-cell hud-primary-key ${walkthroughStep === 'key' ? 'walkthrough-panel-focus' : ''}`.trim()}>
-            <div className="hud-cell-head">
-              <p className="hud-caption">Current Key</p>
-              <button
-                type="button"
-                className={`hud-lock-button ${keyLocked ? 'is-locked' : ''}`.trim()}
-                onClick={onToggleKeyLock}
-                disabled={!hasPrimaryPrompt}
-                aria-pressed={keyLocked}
-                aria-label={keyLocked ? 'Unlock current key' : 'Lock current key'}
-                title={keyLocked ? 'Key locked' : 'Lock current key'}
-              >
-                <LockIcon locked={keyLocked} />
-              </button>
-            </div>
-            <div className="hud-primary-key-row">
-              <button
-                type="button"
-                className="hud-key-step"
-                onClick={onStepKeyBackward}
-                disabled={!canStepKey}
-                aria-label="Previous available key on the circle of fifths"
-              >
-                <span className="hud-key-step-glyph" aria-hidden="true">&lt;</span>
-              </button>
-              <div className="walkthrough-anchor">
-                <button
-                  type="button"
-                  className={`hud-primary-value hud-primary-key-value hud-panel-trigger ${walkthroughStep === 'key' ? 'walkthrough-target' : ''}`.trim()}
-                  onClick={() => {
-                    if (walkthroughActive) {
-                      return;
-                    }
-                    setOpenPicker('key');
-                  }}
-                  aria-label="Choose current key"
-                >
-                  <span>{tonicLabel}</span>
-                  <KeySignatureStaff tonic={scalePrompt?.tonic ?? phrase?.tonic ?? null} />
-                </button>
-                {walkthroughStep === 'key' && walkthroughMessage ? (
-                  <WalkthroughBubble
-                    message={walkthroughMessage}
-                    actionLabel={walkthroughActionLabel}
-                    onAction={onAdvanceWalkthrough}
-                    onSkip={onDismissWalkthrough}
-                  />
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="hud-key-step"
-                onClick={onStepKeyForward}
-                disabled={!canStepKey}
-                aria-label="Next available key on the circle of fifths"
-              >
-                <span className="hud-key-step-glyph" aria-hidden="true">&gt;</span>
-              </button>
-            </div>
-          </article>
-
-          <article className={`hud-primary-cell hud-primary-content ${walkthroughStep === 'content' ? 'walkthrough-panel-focus' : ''}`.trim()}>
-            <p className="hud-caption">Content</p>
-            <div className="hud-primary-content-row">
-              <div className="hud-primary-content-controls">
-                <button
-                  type="button"
-                  className="hud-key-step hud-key-step-stacked"
-                  onClick={onStepCurriculumBackward}
-                  disabled={!canStepCurriculum}
-                  aria-label="Previous curriculum preset"
-                >
-                  <span className="hud-key-step-glyph" aria-hidden="true">_</span>
-                </button>
-                <button
-                  type="button"
-                  className="hud-key-step hud-key-step-stacked"
-                  onClick={onStepModeBackward}
-                  disabled={!canStepMode}
-                  aria-label="Previous exercise mode"
-                >
-                  <span className="hud-key-step-glyph" aria-hidden="true">-</span>
-                </button>
-              </div>
-              <div className="walkthrough-anchor">
-                <button
-                  type="button"
-                  className={`hud-primary-value hud-primary-exercise-value hud-primary-content-value hud-panel-trigger ${walkthroughStep === 'content' ? 'walkthrough-target' : ''}`.trim()}
-                  onClick={() => {
-                    if (walkthroughActive) {
-                      return;
-                    }
-                    setOpenPicker('content');
-                  }}
-                  aria-label="Choose content"
-                >
-                  <span>{curriculumLabel}</span>
-                  <small>{modeLabel}</small>
-                </button>
-                {walkthroughStep === 'content' && walkthroughMessage ? (
-                  <WalkthroughBubble
-                    message={walkthroughMessage}
-                    actionLabel={walkthroughActionLabel}
-                    onAction={onAdvanceWalkthrough}
-                    onSkip={onDismissWalkthrough}
-                  />
-                ) : null}
-              </div>
-              <div className="hud-primary-content-controls">
-                <button
-                  type="button"
-                  className="hud-key-step hud-key-step-stacked"
-                  onClick={onStepCurriculumForward}
-                  disabled={!canStepCurriculum}
-                  aria-label="Next curriculum preset"
-                >
-                  <span className="hud-key-step-glyph" aria-hidden="true">+</span>
-                </button>
-                <button
-                  type="button"
-                  className="hud-key-step hud-key-step-stacked"
-                  onClick={onStepModeForward}
-                  disabled={!canStepMode}
-                  aria-label="Next exercise mode"
-                >
-                  <span className="hud-key-step-glyph" aria-hidden="true">=</span>
-                </button>
-              </div>
-            </div>
-          </article>
-        </div>
-
-        {showPerformanceStats ? (
-          <div className="hud-stat-grid">
-            <div className="hud-stat">
-              <span>Timing</span>
-              <strong>{timingLabel}</strong>
-            </div>
-            <div className="hud-stat">
-              <span>Chord</span>
-              <strong className="hud-chord-mark">{chordLabel}</strong>
-            </div>
-            <div className="hud-stat">
-              <span>Streak</span>
-              <strong>{streak}</strong>
-            </div>
-            <div className="hud-stat">
-              <span>Mastery</span>
-              <strong>{Math.round(deckMasteryPct)}%</strong>
-            </div>
-          </div>
-        ) : null}
-      </section>
+      {showPerformanceStats ? (
+        <p className="stats-line">
+          <span>Timing <span className="stats-value">{timingLabel}</span></span>
+          <span aria-hidden="true">·</span>
+          <span>Chord <span className={`stats-value ${chordLabel === '✓' ? 'is-good' : (chordLabel === '✕' ? 'is-bad' : '')}`.trim()}>{chordLabel}</span></span>
+          <span aria-hidden="true">·</span>
+          <span>Streak <span className="stats-value">{streak}</span></span>
+          <span aria-hidden="true">·</span>
+          <span>Mastery <span className="stats-value">{Math.round(deckMasteryPct)}%</span></span>
+        </p>
+      ) : <span aria-hidden="true" />}
 
       {exercisePickerOpen ? (
         <div className="exercise-picker-overlay" role="presentation" onClick={() => setOpenPicker(null)}>
@@ -935,15 +696,13 @@ export function PracticeLayout({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="exercise-picker-header">
-              <div>
-                <p className="eyebrow">Current Filter</p>
-                <h3>Choose a progression</h3>
-              </div>
+              <h3>Choose a progression</h3>
               <button
                 type="button"
-                className="icon-button settings-close"
+                className="icon-button"
                 onClick={() => setOpenPicker(null)}
                 aria-label="Close exercise picker"
+                title="Close"
               >
                 ×
               </button>
@@ -956,17 +715,17 @@ export function PracticeLayout({
                   <button
                     key={item.id}
                     type="button"
-                    className={`exercise-picker-pill ${selected ? 'selected' : ''} ${item.mastered ? 'mastered' : ''}`.trim()}
+                    className={`picker-item ${selected ? 'is-selected' : ''} ${item.mastered ? 'is-mastered' : ''}`.trim()}
                     onClick={() => {
                       onSelectExercise(item.id);
                       setOpenPicker(null);
                     }}
                   >
-                    <span className="exercise-picker-pill-copy">
-                      <strong>{item.label}</strong>
+                    <span className="picker-item-copy">
+                      <strong>{enDashProgression(item.label)}</strong>
                       <span>{item.subtitle}</span>
                     </span>
-                    <span className="exercise-picker-pill-meta">
+                    <span className="picker-item-meta">
                       <strong>{item.masteryLabel}</strong>
                       <span>{item.detailLabel}</span>
                     </span>
@@ -988,66 +747,55 @@ export function PracticeLayout({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="exercise-picker-header">
-              <div>
-                <p className="eyebrow">Current Filter</p>
-                <h3>Choose current key</h3>
-              </div>
+              <h3>Choose current key</h3>
               <button
                 type="button"
-                className="icon-button settings-close"
+                className="icon-button"
                 onClick={() => setOpenPicker(null)}
                 aria-label="Close key picker"
+                title="Close"
               >
                 ×
               </button>
             </div>
-            <section className="settings-section">
-              <div className="settings-section-copy">
-                <p>Click any tonic on the circle of fifths. Choosing a key outside the current set adds it automatically.</p>
-              </div>
-              <div className="exercise-picker-circle">
-                <CircleOfFifths
-                  currentTonic={currentKeyDisplay}
-                  currentChordRoot={null}
-                  currentChordPitchClasses={[]}
-                  visualizationMode={circleVisualizationMode === 'hidden' ? 'intervals' : circleVisualizationMode}
-                  includedRoots={availableKeyRoots}
-                  selectedTonic={phrase?.tonic ?? null}
-                  onSelectRoot={onSelectCurrentKey}
-                />
-              </div>
-            </section>
+            <p className="settings-help">Click any tonic on the circle of fifths. Choosing a key outside the current set adds it automatically.</p>
+            <div className="exercise-picker-circle">
+              <CircleOfFifths
+                currentTonic={currentKeyDisplay}
+                currentChordRoot={null}
+                currentChordPitchClasses={[]}
+                visualizationMode={circleVisualizationMode === 'hidden' ? 'intervals' : circleVisualizationMode}
+                includedRoots={availableKeyRoots}
+                selectedTonic={phrase?.tonic ?? null}
+                onSelectRoot={onSelectCurrentKey}
+              />
+            </div>
 
-            <section className="settings-section">
-              <div className="exercise-picker-section-head">
-                <div className="settings-section-copy">
-                  <h3>Key Set</h3>
-                  <p>Preset: {currentKeySetLabel}</p>
-                </div>
+            <div className="exercise-picker-section-head">
+              <h3>Key Set</h3>
+              <button
+                type="button"
+                className="settings-potential-toggle"
+                onClick={onClearKeySet}
+                disabled={availableKeyRoots.length === 0}
+              >
+                Clear Key Set
+              </button>
+            </div>
+            <div className="picker-grid">
+              {keySetPickerItems.map((item) => (
                 <button
+                  key={item.id}
                   type="button"
-                  className="settings-pill settings-pill-muted"
-                  onClick={onClearKeySet}
-                  disabled={availableKeyRoots.length === 0}
+                  className={`picker-cell ${item.selected ? 'is-selected' : ''}`.trim()}
+                  onClick={() => onSelectKeySet(item.id)}
+                  title={item.description}
                 >
-                  Clear Key Set
+                  <strong>{item.label}</strong>
                 </button>
-              </div>
-              <div className="settings-pill-row">
-                {keySetPickerItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`settings-pill ${item.selected ? 'active' : ''}`.trim()}
-                    onClick={() => onSelectKeySet(item.id)}
-                    title={item.description}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              <p className="settings-meta">Included keys: {includedKeysLabel}</p>
-            </section>
+              ))}
+            </div>
+            <p className="settings-help">Included keys: {includedKeysLabel}</p>
           </section>
         </div>
       ) : null}
@@ -1062,216 +810,114 @@ export function PracticeLayout({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="exercise-picker-header">
-              <div>
-                <p className="eyebrow">Current Filter</p>
-                <h3>Choose content</h3>
-              </div>
+              <h3>Choose content</h3>
               <button
                 type="button"
-                className="icon-button settings-close"
+                className="icon-button"
                 onClick={() => setOpenPicker(null)}
                 aria-label="Close content picker"
+                title="Close"
               >
                 ×
               </button>
             </div>
-            <div className="exercise-picker-content-top">
-              <section className="settings-section exercise-picker-practice-mode">
-                <div className="settings-section-copy">
-                  <h3>Practice Mode</h3>
-                </div>
-                <div className="practice-mode-toggle" role="tablist" aria-label="Practice mode">
-                  <button
-                    type="button"
-                    className={`practice-mode-toggle-option ${exerciseMode === 'guided' ? 'active' : ''}`.trim()}
-                    onClick={() => onSelectMode('guided')}
-                    aria-pressed={exerciseMode === 'guided'}
-                  >
-                    Guided
-                  </button>
-                  <button
-                    type="button"
-                    className={`practice-mode-toggle-option ${exerciseMode === 'improvisation' ? 'active' : ''}`.trim()}
-                    onClick={() => onSelectMode('improvisation')}
-                    aria-pressed={exerciseMode === 'improvisation'}
-                  >
-                    Improvisation
-                  </button>
-                  <button
-                    type="button"
-                    className={`practice-mode-toggle-option ${exerciseMode === 'chord_flashcards' ? 'active' : ''}`.trim()}
-                    onClick={() => onSelectMode('chord_flashcards')}
-                    aria-pressed={exerciseMode === 'chord_flashcards'}
-                  >
-                    Flashcards
-                  </button>
-                  <button
-                    type="button"
-                    className={`practice-mode-toggle-option ${exerciseMode === 'scale' ? 'active' : ''}`.trim()}
-                    onClick={() => onSelectMode('scale')}
-                    aria-pressed={exerciseMode === 'scale'}
-                  >
-                    Scale
-                  </button>
-                </div>
-                <p className="settings-meta">Switch between guided drilling, scale-guided improvisation, isolated chord recall, and standalone scale practice.</p>
-              </section>
 
-              <section className="settings-section">
-                <div className="settings-section-copy">
-                  <h3>{exerciseMode === 'improvisation'
-                    ? 'Improvisation Flow'
-                    : (exerciseMode === 'chord_flashcards'
-                      ? 'Flashcard Flow'
-                      : (exerciseMode === 'scale' ? 'Scale Flow' : 'Guided Flow'))}
-                  </h3>
-                </div>
-                <div
-                  className="practice-mode-toggle practice-mode-toggle-triple"
-                  role="tablist"
-                  aria-label={exerciseMode === 'improvisation'
-                    ? 'Improvisation flow'
-                    : (exerciseMode === 'chord_flashcards'
-                      ? 'Flashcard flow'
-                      : (exerciseMode === 'scale' ? 'Scale flow' : 'Guided flow'))}
-                >
-                  {exerciseMode === 'improvisation' ? (
-                    <>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${improvisationProgressionMode === 'random' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectImprovisationProgressionMode('random')}
-                      >
-                        Random
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${improvisationProgressionMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectImprovisationProgressionMode('targeting_improvement')}
-                      >
-                        Improvement
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${improvisationProgressionMode === 'chained' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectImprovisationProgressionMode('chained')}
-                      >
-                        Chained
-                      </button>
-                    </>
-                  ) : exerciseMode === 'chord_flashcards' ? (
-                    <>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${flashcardFlowMode === 'random' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectFlashcardFlowMode('random')}
-                      >
-                        Random
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${flashcardFlowMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectFlashcardFlowMode('targeting_improvement')}
-                      >
-                        Improvement
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${flashcardFlowMode === 'mixed_recall' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectFlashcardFlowMode('mixed_recall')}
-                      >
-                        Mixed Recall
-                      </button>
-                    </>
-                  ) : exerciseMode === 'scale' ? (
-                    <>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${scaleFlowMode === 'random' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectScaleFlowMode('random')}
-                      >
-                        Random
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${scaleFlowMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectScaleFlowMode('targeting_improvement')}
-                      >
-                        Improvement
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${scaleFlowMode === 'mixed_recall' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectScaleFlowMode('mixed_recall')}
-                      >
-                        Mixed Recall
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${guidedFlowMode === 'random' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectGuidedFlowMode('random')}
-                      >
-                        Random
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${guidedFlowMode === 'targeting_improvement' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectGuidedFlowMode('targeting_improvement')}
-                      >
-                        Improvement
-                      </button>
-                      <button
-                        type="button"
-                        className={`practice-mode-toggle-option ${guidedFlowMode === 'musical_chaining' ? 'active' : ''}`.trim()}
-                        onClick={() => onSelectGuidedFlowMode('musical_chaining')}
-                      >
-                        Chained
-                      </button>
-                    </>
-                  )}
-                </div>
-                <div className="settings-slider-stack">
-                  <div className="settings-slider-copy">
-                    <strong>Motion</strong>
-                    <span>{chainMovement}% moving</span>
-                  </div>
-                  <input
-                    className="settings-range"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={chainMovement}
-                    onChange={(event) => onSetChainMovement(Number(event.target.value))}
-                    aria-label={exerciseMode === 'improvisation'
-                      ? 'Improvisation flow motion'
-                      : (exerciseMode === 'chord_flashcards'
-                        ? 'Flashcard flow motion'
-                        : (exerciseMode === 'scale' ? 'Scale flow motion' : 'Guided flow motion'))}
-                  />
-                  <div className="settings-range-labels" aria-hidden="true">
-                    <span>Repetitive</span>
-                    <span>Moving</span>
-                  </div>
-                  <p className="settings-meta">Repetitive repeats recent or weak material more often. Moving prefers less recent progressions and exits short loops sooner.</p>
-                </div>
-              </section>
+            <div className="settings-row">
+              <span className="settings-row-label">Practice mode</span>
+              <div className="seg" role="group" aria-label="Practice mode">
+                {([
+                  ['guided', 'Guided'],
+                  ['improvisation', 'Improv'],
+                  ['chord_flashcards', 'Flashcards'],
+                  ['scale', 'Scale'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className="seg-option"
+                    aria-pressed={exerciseMode === value}
+                    onClick={() => onSelectMode(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <section className="settings-section">
-              <div className="settings-section-copy">
-                <h3>Curriculum</h3>
-                <p>Select one or more curriculum groups. Selecting the full set collapses to Full Library.</p>
+            <div className="settings-row">
+              <span className="settings-row-label">Flow</span>
+              <div
+                className="seg"
+                role="group"
+                aria-label={exerciseMode === 'improvisation'
+                  ? 'Improvisation flow'
+                  : (exerciseMode === 'chord_flashcards'
+                    ? 'Flashcard flow'
+                    : (exerciseMode === 'scale' ? 'Scale flow' : 'Guided flow'))}
+              >
+                {exerciseMode === 'improvisation' ? (
+                  <>
+                    <button type="button" className="seg-option" aria-pressed={improvisationProgressionMode === 'random'} onClick={() => onSelectImprovisationProgressionMode('random')}>Random</button>
+                    <button type="button" className="seg-option" aria-pressed={improvisationProgressionMode === 'targeting_improvement'} onClick={() => onSelectImprovisationProgressionMode('targeting_improvement')}>Improvement</button>
+                    <button type="button" className="seg-option" aria-pressed={improvisationProgressionMode === 'chained'} onClick={() => onSelectImprovisationProgressionMode('chained')}>Chained</button>
+                  </>
+                ) : exerciseMode === 'chord_flashcards' ? (
+                  <>
+                    <button type="button" className="seg-option" aria-pressed={flashcardFlowMode === 'random'} onClick={() => onSelectFlashcardFlowMode('random')}>Random</button>
+                    <button type="button" className="seg-option" aria-pressed={flashcardFlowMode === 'targeting_improvement'} onClick={() => onSelectFlashcardFlowMode('targeting_improvement')}>Improvement</button>
+                    <button type="button" className="seg-option" aria-pressed={flashcardFlowMode === 'mixed_recall'} onClick={() => onSelectFlashcardFlowMode('mixed_recall')}>Mixed Recall</button>
+                  </>
+                ) : exerciseMode === 'scale' ? (
+                  <>
+                    <button type="button" className="seg-option" aria-pressed={scaleFlowMode === 'random'} onClick={() => onSelectScaleFlowMode('random')}>Random</button>
+                    <button type="button" className="seg-option" aria-pressed={scaleFlowMode === 'targeting_improvement'} onClick={() => onSelectScaleFlowMode('targeting_improvement')}>Improvement</button>
+                    <button type="button" className="seg-option" aria-pressed={scaleFlowMode === 'mixed_recall'} onClick={() => onSelectScaleFlowMode('mixed_recall')}>Mixed Recall</button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="seg-option" aria-pressed={guidedFlowMode === 'random'} onClick={() => onSelectGuidedFlowMode('random')}>Random</button>
+                    <button type="button" className="seg-option" aria-pressed={guidedFlowMode === 'targeting_improvement'} onClick={() => onSelectGuidedFlowMode('targeting_improvement')}>Improvement</button>
+                    <button type="button" className="seg-option" aria-pressed={guidedFlowMode === 'musical_chaining'} onClick={() => onSelectGuidedFlowMode('musical_chaining')}>Chained</button>
+                  </>
+                )}
               </div>
+            </div>
+
+            <div>
+              <div className="settings-row">
+                <span className="settings-row-label">Motion</span>
+                <span className="settings-row-value">{chainMovement}% moving</span>
+              </div>
+              <input
+                className="settings-range"
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={chainMovement}
+                onChange={(event) => onSetChainMovement(Number(event.target.value))}
+                aria-label={exerciseMode === 'improvisation'
+                  ? 'Improvisation flow motion'
+                  : (exerciseMode === 'chord_flashcards'
+                    ? 'Flashcard flow motion'
+                    : (exerciseMode === 'scale' ? 'Scale flow motion' : 'Guided flow motion'))}
+              />
+              <div className="settings-range-labels" aria-hidden="true">
+                <span>Repetitive</span>
+                <span>Moving</span>
+              </div>
+              <p className="settings-help">Repetitive repeats recent or weak material more often. Moving prefers less recent progressions and exits short loops sooner.</p>
+            </div>
+
+            <div>
+              <h3>Curriculum</h3>
+              <p className="settings-help">Select one or more curriculum groups. Selecting the full set collapses to Full Library.</p>
               <div className="settings-lane-grid">
                 {curriculumPickerItems.map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    className={`settings-lane-card ${item.selected ? 'selected' : ''}`.trim()}
+                    className={`settings-lane-card ${item.selected ? 'is-selected' : ''}`.trim()}
                     disabled={item.disabled}
                     onClick={() => onToggleCurriculumPreset(item.id)}
                   >
@@ -1280,7 +926,7 @@ export function PracticeLayout({
                   </button>
                 ))}
               </div>
-            </section>
+            </div>
           </section>
         </div>
       ) : null}
