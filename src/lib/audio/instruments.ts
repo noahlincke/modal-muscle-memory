@@ -213,11 +213,6 @@ class ToneInstrument implements InstrumentPlayer {
       command();
       return;
     }
-    void raw.resume();
-    if (raw.state === 'running') {
-      command();
-      return;
-    }
     void raw.resume().then(() => command()).catch(() => command());
   }
 
