@@ -84,7 +84,7 @@ import {
 } from './lib/theory/scaleMap';
 import { progressionSubtitle } from './lib/progressionLabels';
 import { resolveRomanToChord } from './lib/theory/roman';
-import type { EvaluationResult, Phrase, PhraseEvent, ScaleId, ScalePrompt, VoicingFamily } from './types/music';
+import { PRACTICE_MODE_ORDER, type EvaluationResult, type Phrase, type PhraseEvent, type ScaleId, type ScalePrompt, type VoicingFamily } from './types/music';
 import type { AttemptRecord, InputMode, ProgressState } from './types/progress';
 
 type Screen = 'practice' | 'progress';
@@ -621,11 +621,7 @@ export default function App() {
   const instrumentPlayerRef = useRef<InstrumentPlayer | null>(null);
   const instrumentPreviewTimeoutRef = useRef<number | null>(null);
 
-  /**
-   * The one shared instrument voice for user notes and reference playback, created
-   * lazily on the first gesture that needs sound. Reads the current settings, wires
-   * master volume, and attaches the player to preview playback.
-   */
+  /** Shared instrument for user notes and reference playback. */
   const ensureInstrumentPlayer = useCallback((): InstrumentPlayer => {
     const existing = instrumentPlayerRef.current;
     if (existing) {
@@ -692,8 +688,6 @@ export default function App() {
     progressRef.current = progress;
   }, [progress]);
 
-  // Preload Tone and hook capture-phase gesture listeners so the first tap can
-  // unlock WebKit's suspended AudioContext synchronously.
   useEffect(() => setupAudioUnlock(), []);
 
   useEffect(() => () => {
@@ -1578,7 +1572,10 @@ export default function App() {
       setIsRunning(true);
       isRunningRef.current = true;
       if (!isFlashcardMode && progressRef.current.settings.metronomeEnabled) {
-        void metronomeRef.current.start(workingPhrase.tempo, { beatOffsetBeats: eventBeatOffset });
+        void metronomeRef.current.start(workingPhrase.tempo, {
+          beatOffsetBeats: eventBeatOffset,
+          skipCurrentBeat: true,
+        });
       }
     }
 
@@ -1851,7 +1848,7 @@ export default function App() {
     if (playInputNotes) {
       if (message.type === 'note_on') {
         ensureInstrumentPlayer();
-        previewRef.current.playInputNote(message.noteNumber);
+        previewRef.current.playInputNote(message.noteNumber, Math.min(1, Math.max(0.05, message.velocity / 127)));
       } else if (message.type === 'note_off') {
         previewRef.current.releaseInputNote(message.noteNumber);
       } else if (message.type === 'sustain') {
@@ -2239,24 +2236,19 @@ export default function App() {
     }
   }, [playInputNotes]);
 
-  // Changing instrument disposes the old shared player; the replacement is created
-  // immediately when one already exists (the drawer interaction is the gesture), or
-  // lazily on the next gesture otherwise.
   useEffect(() => {
+    const wanted = progress.settings.instrument;
     const current = instrumentPlayerRef.current;
-    if (!current) {
+    if (current?.id === wanted) {
       return;
     }
 
     previewRef.current.stop();
     previewRef.current.stopInputNotes();
-    const settings = progressRef.current.settings;
-    const next = createInstrument(settings.instrument, { baseUrl: import.meta.env.BASE_URL });
-    next.setVolume(volumeToDb(settings.volume));
-    instrumentPlayerRef.current = next;
-    previewRef.current.setInstrumentPlayer(next);
-    current.dispose();
-  }, [progress.settings.instrument]);
+    current?.dispose();
+    instrumentPlayerRef.current = null;
+    ensureInstrumentPlayer();
+  }, [ensureInstrumentPlayer, progress.settings.instrument]);
 
   useEffect(() => {
     instrumentPlayerRef.current?.setVolume(volumeToDb(progress.settings.volume));
@@ -2353,6 +2345,17 @@ export default function App() {
       settings: {
         ...progressRef.current.settings,
         showKeyboardPanel: !progressRef.current.settings.showKeyboardPanel,
+      },
+    };
+    commitProgress(next);
+  }, [commitProgress]);
+
+  const toggleColorStaffNotes = useCallback(() => {
+    const next = {
+      ...progressRef.current,
+      settings: {
+        ...progressRef.current.settings,
+        colorStaffNotes: !progressRef.current.settings.colorStaffNotes,
       },
     };
     commitProgress(next);
@@ -2727,9 +2730,6 @@ export default function App() {
           : (desiredPracticeTrackingMode === 'test'
             ? true
             : progressRef.current.settings.metronomeEnabled),
-        showKeyboardPanel: mode === 'scale'
-          ? false
-          : progressRef.current.settings.showKeyboardPanel,
       },
     };
 
@@ -2747,7 +2747,7 @@ export default function App() {
   }, [commitProgress, currentMetronomeBeatOffset, generateNextPhrase, unlockSelectionLocks]);
 
   const stepExerciseMode = useCallback((direction: 'forward' | 'backward') => {
-    const modes: ProgressState['exerciseConfig']['mode'][] = ['guided', 'improvisation', 'chord_flashcards', 'scale'];
+    const modes = PRACTICE_MODE_ORDER;
     const currentIndex = modes.indexOf(progressRef.current.exerciseConfig.mode);
     const nextMode = modes[cycleIndex(modes.length, currentIndex, direction)];
     if (!nextMode) {
@@ -2953,6 +2953,9 @@ export default function App() {
   }, [commitExerciseConfig]);
 
   const keyboardTargetNotes = useMemo(() => {
+    if (progress.exerciseConfig.mode === 'chord_flashcards' && !flashcardScaffoldingVisible) {
+      return [];
+    }
     if (progress.exerciseConfig.mode !== 'improvisation' && keyboardTargetOverrideNotes) {
       return keyboardTargetOverrideNotes;
     }
@@ -2960,13 +2963,9 @@ export default function App() {
     if (!phrase || !event) {
       return [];
     }
-    const targetNotes = phrase.tokensById[event.chordTokenId]?.midiVoicing ?? [];
-    if (progress.exerciseConfig.mode !== 'improvisation') {
-      return targetNotes;
-    }
-
-    return targetNotes;
+    return phrase.tokensById[event.chordTokenId]?.midiVoicing ?? [];
   }, [
+    flashcardScaffoldingVisible,
     keyboardTargetOverrideNotes,
     phrase,
     currentEventIndex,
@@ -2992,9 +2991,6 @@ export default function App() {
   const isFlashcardMode = progress.exerciseConfig.mode === 'chord_flashcards';
   const showFlashcardScaffolding = !isFlashcardMode || flashcardScaffoldingVisible;
   const notationVisible = showFlashcardScaffolding;
-  const effectiveKeyboardVisible = isFlashcardMode
-    ? showFlashcardScaffolding
-    : progress.settings.showKeyboardPanel;
 
   const keyboardRange = useMemo(() => {
     return {
@@ -3154,6 +3150,7 @@ export default function App() {
         completedScaleNoteIndices={completedScaleNoteIndices}
         currentScaleNoteIndex={currentScaleNoteIndex}
         theme={resolvedTheme}
+        colorStaffNotes={progress.settings.colorStaffNotes}
         activeNotes={keyboardActiveNotes}
         minMidi={keyboardRange.min}
         maxMidi={keyboardRange.max}
@@ -3186,7 +3183,7 @@ export default function App() {
         circleVisualizationMode={progress.settings.circleVisualizationMode}
         notationVisible={notationVisible}
         showFlashcardScaffolding={showFlashcardScaffolding}
-        keyboardVisible={effectiveKeyboardVisible}
+        keyboardVisible={progress.settings.showKeyboardPanel}
         metronomeEnabled={progress.settings.metronomeEnabled}
         onTempoChange={setTempo}
         onToggleScaleGuideLabelMode={toggleScaleGuideLabelMode}
@@ -3248,6 +3245,8 @@ export default function App() {
           onToggleImmersiveMode={toggleImmersiveMode}
           keyboardVisible={progress.settings.showKeyboardPanel}
           onToggleKeyboardVisible={toggleKeyboardVisible}
+          colorStaffNotes={progress.settings.colorStaffNotes}
+          onToggleColorStaffNotes={toggleColorStaffNotes}
           clef={progress.settings.staffClef}
           onToggleClef={toggleClef}
           practiceTrackingMode={progress.settings.practiceTrackingMode}

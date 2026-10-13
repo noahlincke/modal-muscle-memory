@@ -27,8 +27,9 @@ function unlockWithTone(Tone: ToneModule): void {
     return;
   }
 
-  // The resume call itself must stay inside the gesture; only the listener
-  // cleanup may wait on the resulting promise.
+  if (typeof Tone.start === 'function') {
+    void Tone.start().catch(() => {});
+  }
   void rawContext.resume().then(() => {
     if (rawAudioContext(Tone).state === 'running') {
       removeUnlockListeners();

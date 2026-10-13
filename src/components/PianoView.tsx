@@ -547,12 +547,10 @@ export function PianoView({
     }
 
     event.preventDefault();
-    if (event.pointerType === 'mouse') {
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch {
-        // Pointer may already be gone; note tracking still works via map.
-      }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer may already be gone; note tracking still works via map.
     }
 
     const midi = Number(keyElement.dataset.midi);

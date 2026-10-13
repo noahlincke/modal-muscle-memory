@@ -4,14 +4,16 @@ import type { MicConnectionState } from '../lib/audio/micAccess';
 import type { MidiConnectionState } from '../lib/midi/midiAccess';
 import { intervalColorForTonicAndRoot } from '../lib/theory/intervalRing';
 import { displayMusicText } from '../lib/theory/noteUtils';
-import type {
-  CircleVisualizationMode,
-  CurriculumPresetId,
-  EvaluationResult,
-  ExerciseMode,
-  KeySetId,
-  Phrase,
-  ScalePrompt,
+import {
+  PRACTICE_MODE_LABELS,
+  PRACTICE_MODE_ORDER,
+  type CircleVisualizationMode,
+  type CurriculumPresetId,
+  type EvaluationResult,
+  type ExerciseMode,
+  type KeySetId,
+  type Phrase,
+  type ScalePrompt,
 } from '../types/music';
 import type { InputMode } from '../types/progress';
 import { CircleOfFifths } from './CircleOfFifths';
@@ -56,6 +58,7 @@ interface PracticeLayoutProps {
   completedScaleNoteIndices?: Set<number>;
   currentScaleNoteIndex?: number;
   theme: 'light' | 'dark';
+  colorStaffNotes: boolean;
   activeNotes: Set<number>;
   minMidi: number;
   maxMidi: number;
@@ -235,6 +238,7 @@ export function PracticeLayout({
   completedScaleNoteIndices = new Set<number>(),
   currentScaleNoteIndex = 0,
   theme,
+  colorStaffNotes,
   activeNotes,
   minMidi,
   maxMidi,
@@ -339,9 +343,9 @@ export function PracticeLayout({
       ? 'Scale guides shown as note names. Click keyboard to hide guide labels.'
       : 'Scale guide labels hidden. Click keyboard to show interval numbers.');
   const notationStripLabel = circleVisualizationMode === 'intervals'
-    ? 'Circle view shown. Click staff to switch to Chord view.'
+    ? 'Circle view. Click staff to switch to Chord view.'
     : (circleVisualizationMode === 'chord_arrows'
-      ? 'Chord view shown. Click staff to hide the circle of fifths.'
+      ? 'Chord view. Click staff to hide the circle of fifths.'
       : 'Circle of fifths hidden. Click staff to show Circle view.');
   const currentKeyDisplay = scalePrompt?.tonic ?? phrase?.tonic ?? availableKeyRoots[0] ?? null;
   const exercisePickerOpen = openPicker === 'exercise';
@@ -778,12 +782,7 @@ export function PracticeLayout({
             <div className="settings-row">
               <span className="settings-row-label">Practice mode</span>
               <div className="seg" role="group" aria-label="Practice mode">
-                {([
-                  ['guided', 'Guided'],
-                  ['improvisation', 'Improv'],
-                  ['chord_flashcards', 'Flashcards'],
-                  ['scale', 'Scale'],
-                ] as const).map(([value, label]) => (
+                {PRACTICE_MODE_ORDER.map((value) => (
                   <button
                     key={value}
                     type="button"
@@ -791,7 +790,7 @@ export function PracticeLayout({
                     aria-pressed={exerciseMode === value}
                     onClick={() => onSelectMode(value)}
                   >
-                    {label}
+                    {PRACTICE_MODE_LABELS[value]}
                   </button>
                 ))}
               </div>
@@ -892,7 +891,6 @@ export function PracticeLayout({
           role={!isStandalonePromptMode ? 'button' : undefined}
           tabIndex={!isStandalonePromptMode ? 0 : undefined}
           aria-label={!isStandalonePromptMode ? notationStripLabel : undefined}
-          title={!isStandalonePromptMode ? notationStripLabel : undefined}
           onClick={!isStandalonePromptMode ? onToggleCircleVisualizationMode : undefined}
           onKeyDown={!isStandalonePromptMode
             ? (event) => {
@@ -918,6 +916,7 @@ export function PracticeLayout({
               completedScaleNoteIndices={completedScaleNoteIndices}
               currentScaleNoteIndex={currentScaleNoteIndex}
               theme={theme}
+              colorStaffNotes={colorStaffNotes}
             />
           ) : null}
         </div>

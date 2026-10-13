@@ -7,7 +7,9 @@
   grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
   gap: var(--s-4);
-  height: 48px;
+  min-height: 64px;
+  height: auto;
+  padding-block: 10px;
   padding-inline: var(--s-4);
   border-bottom: 1px solid var(--line);
 }

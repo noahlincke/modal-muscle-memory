@@ -21,6 +21,7 @@ interface SamplerRecord {
   releases: VoiceCall[];
   releaseAllCalls: number;
   disposed: boolean;
+  connectedTo: unknown;
   finishLoad(): void;
 }
 
@@ -115,6 +116,8 @@ vi.mock('tone', () => {
 
     disposed = false;
 
+    connectedTo: unknown = null;
+
     private finish: () => void;
 
     constructor(options: { urls?: Record<string, string>; release?: number; onload?: () => void }) {
@@ -123,6 +126,11 @@ vi.mock('tone', () => {
       this.finish = () => options.onload?.();
       // Samples never resolve on their own; tests decide when loading is done.
       toneState.samplers.push(this);
+    }
+
+    connect(dest: unknown) {
+      this.connectedTo = dest;
+      return this;
     }
 
     finishLoad() {
@@ -298,25 +306,32 @@ describe('createInstrument', () => {
     expect(toneState.synth.releases).toEqual([]);
   });
 
-  it('falls back to the synth voice while samples are still loading', async () => {
+  it('queues notes until samples are ready, then plays them on the sampler', async () => {
     const player = createInstrument('grand', { baseUrl: '/mmm/' });
 
     player.noteOn(60);
     await vi.waitFor(() => {
-      expect(toneState.synth.attacks).toEqual([{ note: 'C4', velocity: 0.7, time: undefined }]);
+      expect(toneState.samplers).toHaveLength(1);
     });
+    expect(toneState.synth.attacks).toEqual([]);
 
     // The grand sampler points at the self-hosted assets and uses a piano release.
-    expect(toneState.samplers).toHaveLength(1);
-    expect(toneState.samplers[0].urls['C4']).toBe('/mmm/sounds/grand/60.mp3');
+    expect(toneState.samplers[0].urls['60']).toBe('/mmm/sounds/grand/60.mp3');
     expect(toneState.samplers[0].release).toBe(1.2);
 
     toneState.samplers[0].finishLoad();
     await player.loaded;
 
+    expect(toneState.samplers[0].connectedTo).toBe(toneState.outNodes[0]);
+    expect(toneState.samplers[0].attacks).toEqual([{ note: 'C4', velocity: 0.7, time: undefined }]);
+    expect(toneState.synth.connectedTo).toBeNull();
+
     player.noteOn(62);
-    expect(toneState.samplers[0].attacks).toEqual([{ note: 'D4', velocity: 0.7, time: undefined }]);
-    expect(toneState.synth.attacks).toHaveLength(1);
+    expect(toneState.samplers[0].attacks).toEqual([
+      { note: 'C4', velocity: 0.7, time: undefined },
+      { note: 'D4', velocity: 0.7, time: undefined },
+    ]);
+    expect(toneState.synth.attacks).toEqual([]);
   });
 
   it('uses a shorter release for the e-piano sampler', async () => {
@@ -347,11 +362,16 @@ describe('createInstrument', () => {
   });
 
   it('disposes its voices', async () => {
-    const player = await createLoaded('grand');
-    player.dispose();
+    const sampled = await createLoaded('grand');
+    sampled.dispose();
     await vi.waitFor(() => {
       expect(toneState.samplers[0]?.disposed).toBe(true);
     });
-    expect(toneState.synth.disposed).toBe(true);
+
+    const synth = await createLoaded('synth');
+    synth.dispose();
+    await vi.waitFor(() => {
+      expect(toneState.synth.disposed).toBe(true);
+    });
   });
 });

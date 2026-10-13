@@ -4,7 +4,7 @@
   flex: 1 1 0;
   overflow-x: auto;
   overflow-y: hidden;
-  min-height: 314px;
+  min-height: 360px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -12,11 +12,11 @@
 }
 
 .notation-strip.improvisation.bass {
-  min-height: 360px;
+  min-height: 408px;
 }
 
 .notation-strip.improvisation.treble {
-  min-height: 364px;
+  min-height: 412px;
 }
 
 .notation-strip-canvas {
@@ -32,6 +32,7 @@
    the keyboard. The canvas is the first flex child (see the strip above). */
 .notation-scale-hud {
   margin-top: var(--s-4);
+  padding-inline-start: 160px;
   display: grid;
   gap: var(--s-1);
   justify-items: start;

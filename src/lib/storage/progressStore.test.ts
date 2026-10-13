@@ -19,7 +19,11 @@ describe('progressStore', () => {
     expect(progress.settings.playInputNotes).toBe(true);
     expect(progress.settings.instrument).toBe('upright');
     expect(progress.settings.volume).toBe(0.8);
-    expect(progress.settings.metronomeVolume).toBe(0.6);
+    expect(progress.settings.metronomeVolume).toBe(0.3);
+    expect(progress.exerciseConfig.mode).toBe('improvisation');
+    expect(progress.settings.practiceTrackingMode).toBe('play');
+    expect(progress.settings.colorStaffNotes).toBe(true);
+    expect(progress.settings.circleVisualizationMode).toBe('hidden');
   });
 
   it('normalizes and clamps the sound settings', () => {
@@ -240,7 +244,7 @@ describe('progressStore', () => {
     expect(loaded.exerciseConfig.selectedVoicings).toEqual([]);
     expect(loaded.settings.scaleGuideLabelMode).toBe('degrees');
     expect(loaded.settings.playInputNotes).toBe(true);
-    expect(loaded.settings.practiceTrackingMode).toBe('test');
+    expect(loaded.settings.practiceTrackingMode).toBe('play');
     expect(loaded.nodeMastery['ionian:C:Imaj7:shell_137:0:v1'].attempts).toBe(8);
   });
 

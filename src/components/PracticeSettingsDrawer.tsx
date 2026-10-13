@@ -171,6 +171,8 @@ interface PracticeSettingsDrawerProps {
   onToggleImmersiveMode: () => void;
   keyboardVisible: boolean;
   onToggleKeyboardVisible: () => void;
+  colorStaffNotes: boolean;
+  onToggleColorStaffNotes: () => void;
   clef: 'treble' | 'bass';
   onToggleClef: () => void;
   practiceTrackingMode: 'test' | 'play';
@@ -219,6 +221,8 @@ export function PracticeSettingsDrawer({
   onToggleImmersiveMode,
   keyboardVisible,
   onToggleKeyboardVisible,
+  colorStaffNotes,
+  onToggleColorStaffNotes,
   clef,
   onToggleClef,
   practiceTrackingMode,
@@ -590,6 +594,12 @@ export function PracticeSettingsDrawer({
             label="Show keyboard"
             checked={keyboardVisible}
             onChange={onToggleKeyboardVisible}
+          />
+          <SwitchRow
+            label="Color notes on staff"
+            help="Tint noteheads by scale degree. Turn off for plain white notes, which can make dense chords easier to read."
+            checked={colorStaffNotes}
+            onChange={onToggleColorStaffNotes}
           />
           <SwitchRow
             label="Immersive mode"

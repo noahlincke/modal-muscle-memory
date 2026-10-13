@@ -93,6 +93,7 @@ export interface UserSettings {
   midiInputId: string | null;
   inputMode: InputMode;
   playInputNotes: boolean;
+  colorStaffNotes: boolean;
   circleVisualizationMode: CircleVisualizationMode;
   immersiveMode: boolean;
 }

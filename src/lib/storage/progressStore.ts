@@ -59,7 +59,7 @@ const ALL_LANES: ModeLane[] = [
 
 function defaultExerciseConfig(): ExerciseConfig {
   return applyCurriculumPreset({
-    mode: 'guided',
+    mode: 'improvisation',
     curriculumPresetId: 'major_foundations',
     lane: 'ionian',
     enabledContentBlockIds: [],
@@ -182,11 +182,11 @@ function normalizeScaleGuideLabelMode(value: unknown): UserSettings['scaleGuideL
 }
 
 function normalizeCircleVisualizationMode(value: unknown): UserSettings['circleVisualizationMode'] {
-  if (value === 'chord_arrows' || value === 'hidden') {
+  if (value === 'chord_arrows' || value === 'intervals') {
     return value;
   }
 
-  return 'intervals';
+  return 'hidden';
 }
 
 function normalizeInputMode(value: unknown): InputMode {
@@ -216,9 +216,9 @@ function defaultSettings(): UserSettings {
     metronomeEnabled: true,
     instrument: DEFAULT_INSTRUMENT,
     volume: 0.8,
-    metronomeVolume: 0.6,
+    metronomeVolume: 0.3,
     showKeyboardPanel: true,
-    practiceTrackingMode: 'test',
+    practiceTrackingMode: 'play',
     scaleGuideLabelMode: 'degrees',
     staffClef: 'treble',
     registerMin: trebleRegister.min,
@@ -227,7 +227,8 @@ function defaultSettings(): UserSettings {
     midiInputId: null,
     inputMode: 'touch',
     playInputNotes: true,
-    circleVisualizationMode: 'intervals',
+    colorStaffNotes: true,
+    circleVisualizationMode: 'hidden',
     immersiveMode: false,
   };
 }
@@ -382,6 +383,7 @@ export function normalizeProgressState(raw: Partial<ProgressState>): ProgressSta
       volume: normalizeVolume(rawSettings.volume, defaults.settings.volume),
       metronomeVolume: normalizeVolume(rawSettings.metronomeVolume, defaults.settings.metronomeVolume),
       playInputNotes: rawSettings.playInputNotes !== false,
+      colorStaffNotes: rawSettings.colorStaffNotes !== false,
     },
     unlocksByLane: unlocks,
     nodeMastery: raw.nodeMastery ?? {},
