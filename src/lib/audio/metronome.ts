@@ -14,6 +14,7 @@ export function clickPitchForBeat(beatIndex: number): string {
 interface MetronomeStartOptions {
   beatOffsetBeats?: number;
   onBeat?: (beatIndex: number) => void;
+  skipCurrentBeat?: boolean;
 }
 
 export function metronomePhaseForBeatOffset(beatOffsetBeats = 0): {
@@ -124,7 +125,11 @@ export class Metronome {
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = tempo;
 
-    const { nextQuarterIndex, startDelayBeats } = metronomePhaseForBeatOffset(options.beatOffsetBeats);
+    let { nextQuarterIndex, startDelayBeats } = metronomePhaseForBeatOffset(options.beatOffsetBeats);
+    if (options.skipCurrentBeat && startDelayBeats === 0) {
+      nextQuarterIndex += 1;
+      startDelayBeats = 1;
+    }
     let quarterIndex = nextQuarterIndex;
     this.repeatId = Tone.Transport.scheduleRepeat((time) => {
       this.synth?.triggerAttackRelease(clickPitchForBeat(quarterIndex), '16n', time);

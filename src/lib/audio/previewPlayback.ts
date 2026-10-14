@@ -81,14 +81,14 @@ export class PreviewPlayback {
     }).connect(this.clickOut);
   }
 
-  playInputNote(noteNumber: number): void {
+  playInputNote(noteNumber: number, velocity: number = INPUT_VELOCITY): void {
     const player = this.instrumentPlayer;
     if (!player || this.activeInputNotes.has(noteNumber)) {
       return;
     }
 
     this.activeInputNotes.add(noteNumber);
-    player.noteOn(noteNumber, INPUT_VELOCITY);
+    player.noteOn(noteNumber, velocity);
   }
 
   releaseInputNote(noteNumber: number): void {
@@ -229,6 +229,7 @@ export class PreviewPlayback {
       this.completionTimeoutId = null;
     }
 
+    this.activeInputNotes.clear();
     this.instrumentPlayer?.releaseAll();
     this.clickSynth?.triggerRelease();
 

@@ -83,8 +83,7 @@ export interface InstrumentPlayer {
   dispose(): void;
 }
 
-/** Fallback voice used until samples are loaded, so the first touch is never silent. */
-const FALLBACK_SYNTH_OPTIONS = {
+const SYNTH_VOICE_OPTIONS = {
   oscillator: { type: 'triangle' },
   envelope: { attack: 0.01, decay: 0.4, sustain: 0.12, release: 0.9 },
 } as const;
@@ -112,6 +111,8 @@ class ToneInstrument implements InstrumentPlayer {
 
   private initPromise: Promise<void> | null = null;
 
+  private audioContext: AudioContext | null = null;
+
   private out: import('tone').Volume | null = null;
 
   private synth: (import('tone').PolySynth<import('tone').Synth> & Voice) | null = null;
@@ -120,7 +121,7 @@ class ToneInstrument implements InstrumentPlayer {
 
   private samplerReady = false;
 
-  /** Commands queued until the fallback voice exists. */
+  /** Commands queued until the playable voice exists. */
   private queue: Array<() => void> = [];
 
   private volumeDb = 0;
@@ -147,10 +148,7 @@ class ToneInstrument implements InstrumentPlayer {
     return this.id !== 'synth';
   }
 
-  /**
-   * Load Tone, build the fallback synth first (so queued first touches play),
-   * then build the sample sampler on top. Safe to call repeatedly.
-   */
+  /** Load Tone, then the sampler or synth voice. Sampled notes wait until buffers are ready. */
   private init(): Promise<void> {
     if (!this.initPromise) {
       this.initPromise = this.doInit();
@@ -160,6 +158,11 @@ class ToneInstrument implements InstrumentPlayer {
 
   private async doInit(): Promise<void> {
     const Tone = await loadTone();
+    try {
+      this.audioContext = Tone.getContext().rawContext as AudioContext;
+    } catch {
+      this.audioContext = null;
+    }
 
     this.out = new Tone.Volume(this.volumeDb);
     if (this.destination) {
@@ -168,29 +171,57 @@ class ToneInstrument implements InstrumentPlayer {
       this.out.toDestination();
     }
 
-    this.synth = new Tone.PolySynth(Tone.Synth, FALLBACK_SYNTH_OPTIONS).connect(this.out);
-    this.drainQueue();
-
     if (this.hasSamples()) {
       const spec = SAMPLE_SPECS[this.id as Exclude<InstrumentId, 'synth'>];
       const urls: Record<string, string> = {};
       for (const midi of sampleNotes(this.id)) {
-        urls[noteName(midi)] = `${this.baseUrl}/sounds/${this.id}/${midi}.mp3`;
+        urls[String(midi)] = `${this.baseUrl}/sounds/${this.id}/${midi}.mp3`;
       }
       let built: (import('tone').Sampler & Voice) | null = null;
       await new Promise<void>((resolve) => {
         built = new Tone.Sampler({ urls, release: spec.release, onload: resolve });
+        built.connect(this.out as import('tone').Volume);
       });
+      try {
+        await Tone.loaded();
+      } catch {
+        // onload already resolved; Tone.loaded is absent in tests.
+      }
       this.sampler = built;
       this.samplerReady = this.sampler !== null;
+    } else {
+      this.synth = new Tone.PolySynth({
+        maxPolyphony: 64,
+        voice: Tone.Synth,
+        options: SYNTH_VOICE_OPTIONS,
+      }).connect(this.out);
     }
+
+    this.drainQueue();
+  }
+
+  private voiceReady(): boolean {
+    if (this.hasSamples()) {
+      return this.samplerReady;
+    }
+    return this.synth !== null;
+  }
+
+  private runWhenAudible(command: () => void): void {
+    const raw = this.audioContext;
+    if (!raw || raw.state === 'running') {
+      command();
+      return;
+    }
+    void raw.resume().then(() => command()).catch(() => command());
   }
 
   private enqueue(command: () => void): void {
-    if (this.synth) {
-      command();
+    const wrapped = () => this.runWhenAudible(command);
+    if (this.voiceReady()) {
+      wrapped();
     } else {
-      this.queue.push(command);
+      this.queue.push(wrapped);
     }
   }
 
@@ -201,10 +232,9 @@ class ToneInstrument implements InstrumentPlayer {
   }
 
   private pickVoice(): Voice {
-    if (this.samplerReady && this.sampler) {
-      return this.sampler;
+    if (this.hasSamples()) {
+      return this.sampler as Voice;
     }
-    // Only reachable once the fallback voice exists (commands run via enqueue).
     return this.synth as Voice;
   }
 
@@ -218,7 +248,10 @@ class ToneInstrument implements InstrumentPlayer {
       }
       const voice = this.pickVoice();
       this.activeVoice.set(midi, voice);
-      voice.triggerAttack(noteName(midi), time, velocity);
+      const attackTime = time ?? (this.audioContext?.state === 'running'
+        ? this.audioContext.currentTime
+        : undefined);
+      voice.triggerAttack(noteName(midi), attackTime, velocity);
     });
   }
 
@@ -285,14 +318,14 @@ class ToneInstrument implements InstrumentPlayer {
       this.samplerReady = false;
       this.out?.dispose();
       this.out = null;
+      this.audioContext = null;
     });
   }
 }
 
 /**
- * Create a player for an instrument. Sampled instruments stream their MP3s
- * from `<baseUrl>sounds/<id>/` (pass `import.meta.env.BASE_URL`); until they
- * arrive, notes fall through to the built-in synth voice.
+ * Create a player for an instrument. Sampled instruments stream MP3s from
+ * `<baseUrl>sounds/<id>/` (pass `import.meta.env.BASE_URL`).
  */
 export function createInstrument(
   id: InstrumentId,

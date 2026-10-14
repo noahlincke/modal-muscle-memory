@@ -28,6 +28,20 @@ export type ContentBlockId =
   | 'symmetric_color';
 
 export type ExerciseMode = 'guided' | 'improvisation' | 'chord_flashcards' | 'scale';
+
+export const PRACTICE_MODE_ORDER: readonly ExerciseMode[] = [
+  'improvisation',
+  'scale',
+  'chord_flashcards',
+  'guided',
+];
+
+export const PRACTICE_MODE_LABELS: Record<ExerciseMode, string> = {
+  improvisation: 'Improv',
+  scale: 'Scale',
+  chord_flashcards: 'Flashcards',
+  guided: 'Guided',
+};
 export type VoicingPracticeMode = 'auto' | 'custom';
 export type GuidedFlowMode = 'random' | 'targeting_improvement' | 'musical_chaining';
 export type ImprovisationProgressionMode = 'random' | 'targeting_improvement' | 'chained';

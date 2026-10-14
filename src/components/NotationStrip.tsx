@@ -18,6 +18,7 @@ interface NotationStripProps {
   clef: 'treble' | 'bass';
   exerciseMode: ExerciseMode;
   theme: 'light' | 'dark' | 'focus';
+  colorStaffNotes: boolean;
 }
 
 const TOUCH_LANDSCAPE_QUERY = '(pointer: coarse) and (orientation: landscape)';
@@ -236,6 +237,7 @@ export function NotationStrip({
   clef,
   exerciseMode,
   theme,
+  colorStaffNotes,
 }: NotationStripProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const themeAttributeVersion = useThemeAttributeVersion();
@@ -283,8 +285,8 @@ export function NotationStrip({
       const rightEdgePadding = 44;
       const width = containerWidth;
       const availableContentWidth = width - horizontalPadding - rightEdgePadding;
-      const height = isTouchLandscape ? 180 : 306;
-      const staveY = isTouchLandscape ? 62 : 96;
+      const height = isTouchLandscape ? 180 : 348;
+      const staveY = isTouchLandscape ? 62 : 112;
       const fingerLabelOffset = scalePrompt.hand === 'lh' ? 34 : -30;
       const barWeights = Array.from({ length: barCount }, (_, barIndex) => {
         const noteSlice = notes.slice(barIndex * 4, (barIndex + 1) * 4);
@@ -341,9 +343,11 @@ export function NotationStrip({
             staveNote.addModifier(new Accidental(vexKey.accidental), 0);
           }
 
-          const intervalColor = resolveTokenColor(
-            intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi)),
-          );
+          const intervalColor = colorStaffNotes
+            ? resolveTokenColor(
+              intervalColorForTonicAndRoot(scalePrompt.tonic, midiToPitchClass(note.midi)),
+            )
+            : notationInk;
           const isCompleted = completedScaleNoteIndices.has(noteIndex);
           const isCurrent = noteIndex === currentScaleNoteIndex;
           const noteColor = isCompleted
@@ -404,9 +408,9 @@ export function NotationStrip({
     const horizontalPadding = 52;
     const rightEdgePadding = 44;
     const bottomHudHeight = exerciseMode === 'improvisation' && !isTouchLandscape ? 48 : 0;
-    const height = (isTouchLandscape ? 180 : 306) + bottomHudHeight;
-    const staveY = isTouchLandscape ? 62 : 96;
-    const chordLabelY = isTouchLandscape ? 30 : 48;
+    const height = (isTouchLandscape ? 180 : 348) + bottomHudHeight;
+    const staveY = isTouchLandscape ? 62 : 112;
+    const chordLabelY = isTouchLandscape ? 30 : 52;
 
     const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
     const { ink: notationInk, completedInk: notationCompletedInk } = notationPalette();
@@ -428,9 +432,11 @@ export function NotationStrip({
       const eventIndex = phrase.events.findIndex((candidate) => candidate.id === event.id);
       const isCompleted = completedEventIds.has(event.id);
       const isCurrent = eventIndex === currentEventIndex;
-      const intervalColor = resolveTokenColor(
-        intervalColorForTonicAndRoot(phrase.tonic, token.pitchClasses[0] ?? null),
-      );
+      const intervalColor = colorStaffNotes
+        ? resolveTokenColor(
+          intervalColorForTonicAndRoot(phrase.tonic, token.pitchClasses[0] ?? null),
+        )
+        : notationInk;
       let eventColor = intervalColor;
 
       if (isCompleted) {
@@ -637,6 +643,7 @@ export function NotationStrip({
     theme,
     themeAttributeVersion,
     isTouchLandscape,
+    colorStaffNotes,
   ]);
 
   // Scale the finished SVG to fill the strip, capped at MAX_NOTATION_SCALE.
@@ -723,4 +730,4 @@ export function NotationStrip({
   );
 }
 
-const MAX_NOTATION_SCALE = 1.8;
+const MAX_NOTATION_SCALE = 2.15;
